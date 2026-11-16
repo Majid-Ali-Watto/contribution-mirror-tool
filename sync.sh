@@ -43,4 +43,9 @@ if [[ "$remote" != "$EXPECTED_REMOTE" ]]; then
   echo "refusing to push: origin is '$remote', expected '$EXPECTED_REMOTE'" >&2
   exit 1
 fi
+# Skip the SSH round trip when nothing is unpushed (origin/main is the ref recorded by the last push).
+if [[ "$(git -C "$MIRROR" rev-parse main)" == "$(git -C "$MIRROR" rev-parse -q --verify refs/remotes/origin/main || true)" ]]; then
+  echo "nothing to push"
+  exit 0
+fi
 git -C "$MIRROR" push origin main

@@ -52,6 +52,7 @@ python3 -I mirror.py \
 | `--name`, `--email` | Author identity for mirror commits. The email must be **verified** on your personal GitHub account. |
 | `--apply` | Actually create commits. Without it, nothing is written. |
 | `--gh-user` | Optional. `gh` CLI account of your **work** login (`gh auth login` must have been done for it). Also mirrors PR and review timestamps. `sync.sh` sets it from `WORK_GH_USER`. If the lookup fails, a warning is logged and commits are still mirrored. |
+| `--full-api` | Optional. Re-scan the whole 365-day PR/review window instead of only the recent days (see Performance). |
 | `--log-dir` | Optional. Folder for `mirror.log` (default `logs/` here). |
 
 ## Automatic runs (systemd user timer)
@@ -130,7 +131,7 @@ Every run (manual, `sync.sh` or the timer) appends **one `SUMMARY` line** to `lo
 
 ## What gets counted
 
-**PRs and reviews** (when `--gh-user` is set): PRs opened by you (`author:` search, by creation time) and every review you submitted on other people's PRs, last 365 days. GitHub hides private-org items from the contributions GraphQL API, so search and REST are used. Each becomes one empty commit, deduplicated by timestamp on re-runs. Because mirrored items older than 365 days are never removed, the mirror keeps them. A run takes about a minute (one API call per reviewed PR).
+**PRs and reviews** (when `--gh-user` is set): PRs opened by you (`author:` search, by creation time) and every review you submitted on other people's PRs, last 365 days. GitHub hides private-org items from the contributions GraphQL API, so search and REST are used. Each becomes one empty commit, deduplicated by timestamp on re-runs. Mirrored items older than 365 days are never removed, so the mirror keeps them.
 
 `git log --all` is used (merge commits included, because GitHub counts merges you author on the default branch), so these are included:
 
@@ -139,6 +140,19 @@ Every run (manual, `sync.sh` or the timer) appends **one `SUMMARY` line** to `lo
 - Merge commits are included (hash-deduplicated like any other commit).
 - Rebased or cherry-picked commits have different hashes, so they can count twice.
 - The mirror only grows. Deleting or rewriting a branch later does not remove commits already mirrored.
+
+## Performance
+
+A normal run takes about 3 seconds (it was about 2 minutes). Nothing is skipped to get there:
+
+- **Incremental PR/review scan.** After a successful `--apply`, the start time is saved in `logs/api-state.json`. The next run only asks GitHub about the period since then, **minus a 3-day safety margin** (a review always updates its PR's `updated` time, and overlap is harmless because duplicates are skipped by timestamp). A **full 365-day scan** is used automatically on the first run, when the mirror is empty, when the work account changes, when the state file is missing or unreadable, or with `--full-api` (about 15 s). The state is saved only after the commits are written, and never after a failed API call.
+- **Parallel API calls.** Review lookups use 8 threads over keep-alive HTTPS (no `gh` process per call). Rate limits and 5xx errors are retried, honouring `Retry-After`.
+- **No silent search cap.** GitHub search returns at most 1000 results per query. A date range that would exceed it is split in half until each part fits.
+- **Streaming and low memory.** `git log` output is read line by line into per-timestamp counters. No hash set is kept, because `git log --all` already lists each commit once.
+- **One `git fast-import`** writes all new commits at once, instead of one `git commit` process each (identical commit metadata, empty tree).
+- **No push when nothing changed.** `sync.sh` skips `git push` if `main` equals `origin/main` (it prints `nothing to push`). Unpushed commits from a failed earlier push are still pushed.
+
+In incremental runs the `matching` / `already_mirrored` numbers in the summary only cover the recent PR/review window (commits are always counted in full). `created` is exact.
 
 ## Requirements
 
