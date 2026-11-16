@@ -7,12 +7,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"
-MIRROR="$HOME/work-contributions"
-WORK_EMAIL="you@company.com"
-NAME="Majid Ali"
-PERSONAL_EMAIL="majidaliqau@gmail.com"
-WORK_GH_USER="your-work-account"   # gh CLI account of the work login (for PR/review timestamps)
-EXPECTED_REMOTE="git@github.com:Majid-Ali-Watto/work-contributions.git"
+
+# Private settings live in .env (git-ignored); see .env.example.
+source "$HERE/load-env.sh"
+load_env "${MIRROR_ENV_FILE:-$HERE/.env}"
+require_vars WORK_EMAIL PERSONAL_NAME PERSONAL_EMAIL EXPECTED_REMOTE
+MIRROR="${MIRROR_DIR:-$HOME/work-contributions}"
+NAME="$PERSONAL_NAME"
+read -ra WORK_EMAILS <<< "$WORK_EMAIL"   # one or several, space-separated
 
 DRY=0
 SRC=()
@@ -24,8 +26,9 @@ for a in "$@"; do
   fi
 done
 
-args=(--work-email "$WORK_EMAIL" --mirror "$MIRROR"
-      --name "$NAME" --email "$PERSONAL_EMAIL" --gh-user "$WORK_GH_USER")
+args=(--work-email "${WORK_EMAILS[@]}" --mirror "$MIRROR"
+      --name "$NAME" --email "$PERSONAL_EMAIL")
+[[ -n "${WORK_GH_USER:-}" ]] && args+=(--gh-user "$WORK_GH_USER")
 # No folders given: mirror.py scans exactly the repos listed in repos.json (or, if that
 # file is missing, every sibling folder of this one).
 [[ ${#SRC[@]} -gt 0 ]] && args+=(--src "${SRC[@]}")

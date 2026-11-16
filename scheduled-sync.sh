@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Entry point for the systemd timer. Waits for network, then runs sync.sh.
-# Uses the personal SSH key explicitly so it works without a logged-in ssh-agent.
+# Uses the personal SSH key (PERSONAL_SSH_KEY in .env) explicitly so it works without a logged-in ssh-agent.
 # Shows a desktop notification on success (with new-commit counts) and on failure.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/github_personal -o IdentitiesOnly=yes -o BatchMode=yes"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 
 # notify_fail "<reason>" ["<error output from the failed step>"]
@@ -18,6 +17,13 @@ notify_fail() {
 $detail}
 Log: $HERE/logs/mirror.log" 2>/dev/null || true
 }
+
+source "$HERE/load-env.sh"
+env_err="$(load_env "${MIRROR_ENV_FILE:-$HERE/.env}" 2>&1)" || { notify_fail "cannot read .env" "$env_err"; exit 1; }
+load_env "${MIRROR_ENV_FILE:-$HERE/.env}" 2>/dev/null
+if [[ -n "${PERSONAL_SSH_KEY:-}" ]]; then
+  export GIT_SSH_COMMAND="ssh -i \"$PERSONAL_SSH_KEY\" -o IdentitiesOnly=yes -o BatchMode=yes"
+fi
 
 # Wait up to ~5 min for GitHub to be reachable (laptop may have just booted / be offline).
 online=0

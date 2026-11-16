@@ -1,0 +1,9 @@
+{
+  "repos": [
+    "/path/to/your/work-repo-1",
+    "/path/to/your/work-repo-2"
+  ],
+  "remote_repos": [
+    "git@github.com:YourOrg/repo-you-have-not-cloned.git"
+  ]
+}

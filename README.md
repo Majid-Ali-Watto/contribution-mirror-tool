@@ -4,11 +4,11 @@ Copies the **timestamps** of your work commits into a separate personal repo as 
 
 ## What it reads and writes
 
-- **Reads** (from work repos): author email and author date of each commit. The commit hash is used in memory only, to avoid counting a commit twice when it is on several branches.
+- **Reads** (from work repos): the author email and author date of each commit, and nothing else. No hashes, messages or paths are read.
 - **Reads** (from the work GitHub account, via the `gh` CLI): only the timestamp of each PR you opened and each PR review you submitted in the last 365 days. Nothing else is stored (no titles, repos, PR numbers).
 - **Never copies** into the mirror: code, file names, paths, commit messages, hashes or repo names.
 - **Writes**: empty commits with the message `mirror`, your personal name and email, and the original date, into the mirror repo only.
-- **Never modifies** the work repos.
+- **Never modifies** your work: before scanning it runs `git fetch` in the work clones, which only updates remote-tracking refs (no branches, working tree, uncommitted changes or `--prune`). Repos that are not cloned locally are cloned into a temp folder as a bare, tree-less clone (commit metadata only, about 100 KB), scanned, and **deleted right after**.
 
 ## Files
 
@@ -16,21 +16,25 @@ Copies the **timestamps** of your work commits into a separate personal repo as 
 | --- | --- |
 | `mirror.py` | Core script. Dry run by default; `--apply` creates commits. Never pushes. |
 | `sync.sh` | Wrapper: runs `mirror.py --apply`, then pushes to the personal mirror remote. |
+| `scheduled-sync.sh` | Entry point for the systemd timer: waits for network, runs `sync.sh`, shows desktop notifications. |
+| `load-env.sh` | Reads `.env` safely (plain `KEY=VALUE` parsing, the file is never executed as shell). |
+| `.env.example` | Template for your private settings. Copy to `.env` (git-ignored). |
+| `repos.example.json` | Template for the list of work repos. Copy to `repos.json` (git-ignored). |
 
 ## Usage
 
 ```bash
 ./sync.sh            # mirror new commits and push
 ./sync.sh --dry-run  # preview only: no commits, no push
-./sync.sh docker-learning projects            # only these sibling folders
-./sync.sh --dry-run docker-learning              # preview for one folder
+./sync.sh my-repo other-folder                   # only these sibling folders
+./sync.sh --dry-run my-repo                      # preview for one folder
 ```
 
 Folder names are resolved as siblings of `contribution-mirror-tool` first, then as paths, and are searched recursively. With no names, the repos in `repos.json` are scanned.
 
 Running it again is safe. Only timestamps not already in the mirror are added.
 
-Settings (work email, personal identity, paths, expected remote) are variables at the top of `sync.sh`.
+Your settings (work email, personal identity, mirror remote, accounts) are read from `.env`, and your repo list from `repos.json`. Both are **git-ignored**, so nothing private is ever committed. See [Configuration](#configuration).
 
 ### Running `mirror.py` directly
 
@@ -53,6 +57,7 @@ python3 -I mirror.py \
 | `--apply` | Actually create commits. Without it, nothing is written. |
 | `--gh-user` | Optional. `gh` CLI account of your **work** login (`gh auth login` must have been done for it). Also mirrors PR and review timestamps. `sync.sh` sets it from `WORK_GH_USER`. If the lookup fails, a warning is logged and commits are still mirrored. |
 | `--full-api` | Optional. Re-scan the whole 365-day PR/review window instead of only the recent days (see Performance). |
+| `--no-fetch` | Optional. Skip `git fetch` of the work repos and the temporary clones of `remote_repos` (offline / fastest). |
 | `--log-dir` | Optional. Folder for `mirror.log` (default `logs/` here). |
 
 ## Automatic runs (systemd user timer)
@@ -60,13 +65,35 @@ python3 -I mirror.py \
 `contribution-mirror.timer` (in `~/.config/systemd/user/`) runs `scheduled-sync.sh`, which waits for network and then runs `sync.sh`:
 
 - 5 minutes after you log in (i.e. when the laptop is turned on).
-- Daily at 18:00 Asia/Karachi (PKT). If the laptop was off at 6pm, it runs when it is next on (`Persistent=true`).
+- Daily at 18:00 in the timezone set in `OnCalendar` (see the templates below). If the laptop was off then, it runs when it is next on (`Persistent=true`).
 
 Every run shows a desktop notification: **"sync OK"** with the number of new commits (and which repos they came from), or "Up to date, no new commits". If a run fails (GitHub unreachable after ~5 min, or `sync.sh` exits non-zero, e.g. push rejected), a critical **desktop notification** (`notify-send`) is shown and an `ERROR` line is added to `logs/mirror.log`. The next run retries.
 
-Pushes use `~/.ssh/github_personal` explicitly, so no ssh-agent is needed. Re-runs are harmless: already-mirrored timestamps are skipped.
+Pushes use the key in `PERSONAL_SSH_KEY` (`.env`) explicitly, so no ssh-agent is needed. Fetches and clones of the work repos do not use it: they use your normal `~/.ssh/config` (work key). Re-runs are harmless: already-mirrored timestamps are skipped.
+
+Install (replace `/path/to/contribution-mirror-tool` and the timezone):
+
+```ini
+# ~/.config/systemd/user/contribution-mirror.service
+[Unit]
+Description=Mirror work contribution timestamps to personal repo
+[Service]
+Type=oneshot
+ExecStart="/path/to/contribution-mirror-tool/scheduled-sync.sh"
+
+# ~/.config/systemd/user/contribution-mirror.timer
+[Unit]
+Description=Run contribution-mirror at login and daily
+[Timer]
+OnStartupSec=5min
+OnCalendar=*-*-* 18:00:00 Your/Timezone
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
 
 ```bash
+systemctl --user daemon-reload && systemctl --user enable --now contribution-mirror.timer
 systemctl --user list-timers contribution-mirror.timer   # next run
 systemctl --user start contribution-mirror.service       # run now
 journalctl --user -u contribution-mirror.service -n 30   # logs
@@ -75,13 +102,16 @@ systemctl --user disable --now contribution-mirror.timer # turn off
 
 ## Choosing repos: `repos.json`
 
-List the exact repo paths in [repos.json](repos.json). Each path must be a git repo (contain `.git`); the script reads it directly and does **not** search inside it or anywhere else.
+Copy [repos.example.json](repos.example.json) to `repos.json` (git-ignored) and list the exact repo paths in it. Each path must be a git repo (contain `.git`); the script reads it directly and does **not** search inside it or anywhere else.
 
 ```json
 {
   "repos": [
-    "/path/to/app-fe",
-    "/path/to/app-api"
+    "/path/to/your/work-repo-1",
+    "/path/to/your/work-repo-2"
+  ],
+  "remote_repos": [
+    "git@github.com:YourOrg/repo-you-have-not-cloned.git"
   ]
 }
 ```
@@ -89,12 +119,13 @@ List the exact repo paths in [repos.json](repos.json). Each path must be a git r
 - `~` is expanded. Duplicates are ignored.
 - A path that is missing or not a git repo is skipped with a warning (on stderr), the rest still run.
 - To add a repo, add its path to the list. No code change needed.
+- **Repos you have not cloned:** list their clone URLs under `remote_repos` (use the same host alias as your work remotes, e.g. `git@github-work:YourOrg/repo.git` if you keep a separate work SSH key). Each run clones them into a temp folder, reads only the commit timestamps, and deletes the clone. A URL that matches the `origin` of a listed local repo is skipped, so nothing is counted twice. Both fetches and temp clones use your normal `~/.ssh/config` (work key), never the personal key the timer uses for pushing.
 - Precedence: `--src` or folder names passed to `sync.sh` > `repos.json` > scanning all sibling folders (only if `repos.json` does not exist).
 - A different file can be used with `mirror.py --repos-file <path>`.
 
 ## How `--src` / folder names are scanned
 
-A folder that is itself a git repo is scanned as one repo. A folder that is not a repo is searched recursively and every repo inside it is scanned. E.g. `projects` is not a repo; it contains `app-fe` and `app-api`, which are each scanned. The search does not descend into a repo or into `node_modules`.
+A folder that is itself a git repo is scanned as one repo. A folder that is not a repo is searched recursively and every repo inside it is scanned. E.g. a folder `projects` that is not a repo but contains `app-fe` and `app-api` has both of them scanned. The search does not descend into a repo or into `node_modules`.
 
 ## Logs
 
@@ -111,23 +142,29 @@ Every run (manual, `sync.sh` or the timer) appends **one `SUMMARY` line** to `lo
 - Repo folder names appear **only** in this local log, never in the mirror repo.
 - Another location: `mirror.py --log-dir <folder>`.
 
-## Current setup
+## Configuration
 
-- Source repos: those listed in `repos.json` (currently `projects/app-fe` and `projects/app-api`). New repos are not picked up until you add them to the file.
-- Mirror repo: `~/work-contributions` (private, `Majid-Ali-Watto/work-contributions`)
-- `sync.sh` refuses to push unless `origin` is the expected personal remote.
+Private values live in two git-ignored files, so the repo is safe to publish and every developer uses their own:
+
+| File | Holds | Template |
+| --- | --- | --- |
+| `.env` | Emails, name, mirror folder and remote, work GitHub account, SSH key path | `.env.example` |
+| `repos.json` | Local work repo paths and `remote_repos` URLs | `repos.example.json` |
+
+`.env` keys: `WORK_EMAIL` (several allowed, space-separated), `PERSONAL_NAME`, `PERSONAL_EMAIL` (must be verified on your personal GitHub), `MIRROR_DIR`, `EXPECTED_REMOTE` (`sync.sh` refuses to push anywhere else), and the optional `WORK_GH_USER` (PRs and reviews) and `PERSONAL_SSH_KEY` (timer pushes). Format is plain `KEY=VALUE`, comments on their own line. A variable already set in your shell overrides the file, and `MIRROR_ENV_FILE=/other/path` points to a different file.
 
 ## First-time setup
 
 1. Create an empty **private** repo on your personal GitHub account.
-2. Run `./sync.sh --dry-run` and check the numbers.
-3. Run `mirror.py` with `--apply` (or `sync.sh` after adding the remote):
+2. `cp .env.example .env` and `cp repos.example.json repos.json`, then fill them in.
+3. Run `./sync.sh --dry-run` and check the numbers.
+4. Run `mirror.py` with `--apply` (or `sync.sh` after adding the remote):
    ```bash
-   cd ~/work-contributions
-   git remote add origin git@github.com:<you>/work-contributions.git
+   cd "$MIRROR_DIR"   # the folder from .env
+   git remote add origin <the EXPECTED_REMOTE from .env>
    git push -u origin main
    ```
-4. On GitHub, enable **Profile > Contribution settings > Include private contributions on my profile**.
+5. On GitHub, enable **Profile > Contribution settings > Include private contributions on my profile**.
 
 ## What gets counted
 
@@ -135,7 +172,7 @@ Every run (manual, `sync.sh` or the timer) appends **one `SUMMARY` line** to `lo
 
 `git log --all` is used (merge commits included, because GitHub counts merges you author on the default branch), so these are included:
 
-- Local branches, tags, and remote-tracking branches that have been **fetched**. Unfetched remote work is missed, so `git fetch` in the work repos first if you want it included.
+- Local branches, tags, and remote-tracking branches. The work repos are fetched at the start of every run, so stale clones are not a problem. If a fetch fails (offline, no access), a warning is logged and the local data is used.
 - Unmerged feature-branch commits, which GitHub itself would not count in the work repo.
 - Merge commits are included (hash-deduplicated like any other commit).
 - Rebased or cherry-picked commits have different hashes, so they can count twice.

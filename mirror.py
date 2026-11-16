@@ -17,9 +17,13 @@ Speed/memory notes:
   * after a successful --apply the start time is stored in logs/api-state.json, so the next run only asks
     GitHub about the last few days (with a safety margin). A full 365-day scan is used on the first run,
     when the mirror is empty, when the work account changes, or with --full-api;
-  * new commits are written with a single `git fast-import` instead of one `git commit` per timestamp.
+  * new commits are written with a single `git fast-import` instead of one `git commit` per timestamp;
+  * work repos are `git fetch`ed first (remote-tracking refs only: no branches, working tree or files change),
+    so stale clones don't hide commits; repos listed under "remote_repos" that are not cloned locally are
+    cloned into a temp folder as a bare, tree-less clone (commit metadata only, ~100 KB), scanned, and
+    deleted again. Fetches and clones run in parallel.
 """
-import argparse, http.client, json, logging, logging.handlers, math, os, subprocess, sys, threading, time
+import argparse, http.client, json, logging, logging.handlers, math, os, shutil, subprocess, sys, tempfile, threading, time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -74,6 +78,45 @@ def source_dates(repo, emails):
         if email.lower() in emails:
             c[date] += 1
     return c
+
+def work_env():
+    """Environment for git calls that talk to the WORK remotes. The timer exports GIT_SSH_COMMAND with the
+    personal key for the push; that must not be used here, so it is dropped and ssh falls back to ~/.ssh/config
+    (the work host alias and key). Never prompts."""
+    env = {k: v for k, v in os.environ.items() if k != "GIT_SSH_COMMAND"}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=20"
+    return env
+
+def fetch_repo(repo):
+    """Update remote-tracking refs of a work clone. Returns an error string, or None on success.
+    No --prune and no merge/checkout: local branches, the working tree and uncommitted work are untouched."""
+    try:
+        r = subprocess.run(["git", "-C", repo, "-c", "gc.auto=0", "-c", "maintenance.auto=false",
+                            "fetch", "--all", "--quiet"],
+                           capture_output=True, text=True, env=work_env(), timeout=180)
+    except subprocess.TimeoutExpired:
+        return "timed out after 180s"
+    return None if r.returncode == 0 else (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
+
+def remote_dates(url, emails):
+    """Scan a repo that is not cloned locally: bare, tree-less clone (commits only) into a temp folder that is
+    always deleted afterwards. Returns (Counter, error-or-None)."""
+    tmp = tempfile.mkdtemp(prefix="mirror-scan-")
+    try:
+        r = subprocess.run(["git", "clone", "--quiet", "--bare", "--filter=tree:0", "--no-tags", url, tmp + "/r"],
+                           capture_output=True, text=True, env=work_env(), timeout=300)
+        if r.returncode != 0:
+            return Counter(), (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
+        return source_dates(tmp + "/r", emails), None
+    except subprocess.TimeoutExpired:
+        return Counter(), "clone timed out after 300s"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+def origin_url(repo):
+    return subprocess.run(["git", "-C", repo, "config", "--get", "remote.origin.url"],
+                          capture_output=True, text=True).stdout.strip()
 
 # ---------------------------------------------------------------- GitHub API (PRs and reviews) ----
 
@@ -192,9 +235,11 @@ def save_state(log_dir, gh_user, started):
 # ------------------------------------------------------------------------------ repo selection ----
 
 def load_repos_file(path):
-    """Exact repo paths from a JSON file: {"repos": [...]}. No directory walking."""
+    """Exact repo paths from a JSON file: {"repos": [...], "remote_repos": [urls]}. No directory walking.
+    Returns (local repo paths, remote clone URLs to scan from a temporary clone)."""
     with open(path) as f:
-        listed = json.load(f)["repos"]
+        cfg = json.load(f)
+    listed = cfg["repos"]
     repos = []
     for r in listed:
         r = os.path.abspath(os.path.expanduser(r))
@@ -203,7 +248,7 @@ def load_repos_file(path):
             log.warning("skipped %s (not a git repo)", r)
         elif r not in repos:
             repos.append(r)
-    return repos
+    return repos, list(dict.fromkeys(cfg.get("remote_repos", [])))
 
 def find_repos(roots):
     for root in roots:
@@ -266,6 +311,8 @@ def main():
                    "PRs you opened and PR reviews you made (last 365 days) are mirrored too")
     p.add_argument("--full-api", action="store_true",
                    help="re-scan the whole 365-day window for PRs/reviews instead of only the recent days")
+    p.add_argument("--no-fetch", action="store_true",
+                   help="do not `git fetch` the work repos and do not scan \"remote_repos\" (offline / fastest)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--log-dir", default=LOG_DIR,
                    help="folder for mirror.log (rotates at 5 MB, keeps 10 old files) and api-state.json; default: logs/ next to this script")
@@ -274,22 +321,47 @@ def main():
 
     mirror = os.path.abspath(a.mirror)
     emails = {e.lower() for e in a.work_email}
+    remotes = []
     if a.src:
         repos = [os.path.abspath(r) for r in find_repos(a.src)]
     elif os.path.exists(a.repos_file):
-        repos = load_repos_file(a.repos_file)
+        repos, remotes = load_repos_file(a.repos_file)
     else:
         repos = [os.path.abspath(r) for r in find_repos([SIBLINGS])]
     if any(mirror == r or mirror.startswith(r + os.sep) for r in repos):
         log.error("mirror must not be inside a source repo")
         sys.exit("mirror must not be inside a source repo")
     repos = [r for r in repos if r != mirror]  # never scan the mirror itself
+    if remotes:  # a remote that is already cloned locally and listed would be counted twice
+        local_urls = {origin_url(r) for r in repos}
+        remotes = [u for u in remotes if u not in local_urls]
+
+    def warn(msg):
+        print(f"warning: {msg}", file=sys.stderr)
+        log.warning("%s", msg)
+
+    def scan_local(r):
+        err = None if a.no_fetch else fetch_repo(r)
+        if err:
+            warn(f"fetch failed for {r}, scanning what is already local: {err}")
+        return source_dates(r, emails)
+
+    def scan_remote(url):
+        c, err = remote_dates(url, emails)
+        if err:
+            warn(f"temporary clone of {url} failed, skipped: {err}")
+        return c
 
     wanted, per_repo = Counter(), []
-    for r in repos:
-        c = source_dates(r, emails)
-        per_repo.append((r, c))
-        wanted.update(c)
+    remotes = [] if a.no_fetch else remotes
+    with ThreadPoolExecutor(max(1, min(8, len(repos) + len(remotes)))) as ex:
+        jobs = [(r, ex.submit(scan_local, r)) for r in repos]
+        jobs += [("remote:" + u.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"), ex.submit(scan_remote, u))
+                 for u in remotes]
+        for label, f in jobs:
+            c = f.result()
+            per_repo.append((label, c))
+            wanted.update(c)
 
     existing = Counter()
     if os.path.isdir(os.path.join(mirror, ".git")):
@@ -320,17 +392,17 @@ def main():
     for r, c in per_repo:
         covered = c & left
         left -= covered
-        by_repo.append(f"{os.path.basename(r).replace('github-api:', '')}={sum((c - covered).values())}")
+        by_repo.append(f"{os.path.basename(r).replace('github-api:', '').replace('remote:', '')}={sum((c - covered).values())}")
         say(f"repo {r}: matching={sum(c.values())} already_mirrored={sum(covered.values())} "
             f"new={sum((c - covered).values())}")
 
-    say(f"source repos scanned : {len(repos)}")
+    say(f"source repos scanned : {len(repos) + len(remotes)}")
     say(f"matching contributions: {sum(wanted.values())}")
     say(f"already mirrored     : {sum((wanted & existing).values())}")
     say(f"to create            : {sum(todo.values())}")
 
     def summary(verb):
-        line = (f"SUMMARY mode={'apply' if a.apply else 'dry-run'} repos={len(repos)} "
+        line = (f"SUMMARY mode={'apply' if a.apply else 'dry-run'} repos={len(repos) + len(remotes)} "
             f"matching={sum(wanted.values())} already_mirrored={sum((wanted & existing).values())} "
             f"{verb}={sum(todo.values())} | new per repo: {' '.join(by_repo) or '-'}")
         print(line)
