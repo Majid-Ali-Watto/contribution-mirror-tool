@@ -11,6 +11,7 @@ MIRROR="$HOME/work-contributions"
 WORK_EMAIL="you@company.com"
 NAME="Majid Ali"
 PERSONAL_EMAIL="majidaliqau@gmail.com"
+WORK_GH_USER="your-work-account"   # gh CLI account of the work login (for PR/review timestamps)
 EXPECTED_REMOTE="git@github.com:Majid-Ali-Watto/work-contributions.git"
 
 DRY=0
@@ -24,7 +25,7 @@ for a in "$@"; do
 done
 
 args=(--work-email "$WORK_EMAIL" --mirror "$MIRROR"
-      --name "$NAME" --email "$PERSONAL_EMAIL")
+      --name "$NAME" --email "$PERSONAL_EMAIL" --gh-user "$WORK_GH_USER")
 # No folders given: mirror.py scans exactly the repos listed in repos.json (or, if that
 # file is missing, every sibling folder of this one).
 [[ ${#SRC[@]} -gt 0 ]] && args+=(--src "${SRC[@]}")

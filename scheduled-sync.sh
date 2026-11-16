@@ -41,7 +41,7 @@ fi
 # Success notification: total new commits, plus per-repo breakdown for repos that got any.
 total="$(sed -n 's/^created \([0-9]*\) commits.*/\1/p' "$out" | tail -1)"
 total="${total:-0}"
-detail="$(sed -n 's#^repo .*/\([^/]*\): .* new=\([0-9][0-9]*\)$#\1: \2#p' "$out" | grep -v ': 0$' || true)"
+detail="$(sed -n 's#^repo \(.*/\)\{0,1\}\([^/]*\): .* new=\([0-9][0-9]*\)$#\2: \3#p' "$out" | grep -v ': 0$' || true)"
 if [[ "$total" -gt 0 ]]; then
   msg="$total new commit(s) mirrored and pushed
 $detail"

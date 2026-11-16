@@ -5,6 +5,7 @@ Copies the **timestamps** of your work commits into a separate personal repo as 
 ## What it reads and writes
 
 - **Reads** (from work repos): author email and author date of each commit. The commit hash is used in memory only, to avoid counting a commit twice when it is on several branches.
+- **Reads** (from the work GitHub account, via the `gh` CLI): only the timestamp of each PR you opened and each PR review you submitted in the last 365 days. Nothing else is stored (no titles, repos, PR numbers).
 - **Never copies** into the mirror: code, file names, paths, commit messages, hashes or repo names.
 - **Writes**: empty commits with the message `mirror`, your personal name and email, and the original date, into the mirror repo only.
 - **Never modifies** the work repos.
@@ -50,13 +51,14 @@ python3 -I mirror.py \
 | `--mirror` | Path of the mirror repo. Created if missing. Must not be inside a source repo. |
 | `--name`, `--email` | Author identity for mirror commits. The email must be **verified** on your personal GitHub account. |
 | `--apply` | Actually create commits. Without it, nothing is written. |
+| `--gh-user` | Optional. `gh` CLI account of your **work** login (`gh auth login` must have been done for it). Also mirrors PR and review timestamps. `sync.sh` sets it from `WORK_GH_USER`. If the lookup fails, a warning is logged and commits are still mirrored. |
 | `--log-dir` | Optional. Folder for `mirror.log` (default `logs/` here). |
 
 ## Automatic runs (systemd user timer)
 
 `contribution-mirror.timer` (in `~/.config/systemd/user/`) runs `scheduled-sync.sh`, which waits for network and then runs `sync.sh`:
 
-- 2 minutes after you log in (i.e. when the laptop is turned on).
+- 5 minutes after you log in (i.e. when the laptop is turned on).
 - Daily at 18:00 Asia/Karachi (PKT). If the laptop was off at 6pm, it runs when it is next on (`Persistent=true`).
 
 Every run shows a desktop notification: **"sync OK"** with the number of new commits (and which repos they came from), or "Up to date, no new commits". If a run fails (GitHub unreachable after ~5 min, or `sync.sh` exits non-zero, e.g. push rejected), a critical **desktop notification** (`notify-send`) is shown and an `ERROR` line is added to `logs/mirror.log`. The next run retries.
@@ -128,11 +130,13 @@ Every run (manual, `sync.sh` or the timer) appends **one `SUMMARY` line** to `lo
 
 ## What gets counted
 
-`git log --all --no-merges` is used, so these are included:
+**PRs and reviews** (when `--gh-user` is set): PRs opened by you (`author:` search, by creation time) and every review you submitted on other people's PRs, last 365 days. GitHub hides private-org items from the contributions GraphQL API, so search and REST are used. Each becomes one empty commit, deduplicated by timestamp on re-runs. Because mirrored items older than 365 days are never removed, the mirror keeps them. A run takes about a minute (one API call per reviewed PR).
+
+`git log --all` is used (merge commits included, because GitHub counts merges you author on the default branch), so these are included:
 
 - Local branches, tags, and remote-tracking branches that have been **fetched**. Unfetched remote work is missed, so `git fetch` in the work repos first if you want it included.
 - Unmerged feature-branch commits, which GitHub itself would not count in the work repo.
-- Merge commits are skipped.
+- Merge commits are included (hash-deduplicated like any other commit).
 - Rebased or cherry-picked commits have different hashes, so they can count twice.
 - The mirror only grows. Deleting or rewriting a branch later does not remove commits already mirrored.
 

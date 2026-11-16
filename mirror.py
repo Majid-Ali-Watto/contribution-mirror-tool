@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Mirror commit TIMESTAMPS (only) from local repos into an empty-commit repo.
+"""Mirror contribution TIMESTAMPS (only) from local repos (and optionally PRs/reviews via the GitHub API)
+into an empty-commit repo.
 
 Reads from source repos: author date of commits matching --work-email. Nothing else
 (no hashes, messages, paths, repo names) is read into the output or written anywhere.
@@ -11,6 +12,7 @@ new commits per repo (plus any warnings/errors). Repo paths appear only in that 
 """
 import argparse, json, logging, logging.handlers, os, subprocess, sys
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 MSG = "mirror"
 # Parent of the folder this script lives in -> its children are the "sibling folders".
@@ -42,7 +44,7 @@ def git(repo, *args, env=None, check=True):
 def source_dates(repo, emails):
     seen, dates = set(), []
     # %H used only in-memory to dedupe commits reachable from several branches.
-    out = git(repo, "log", "--all", "--no-merges", "--format=%H %ae %aI", check=False)
+    out = git(repo, "log", "--all", "--format=%H %ae %aI", check=False)
     for line in out.splitlines():
         h, email, date = line.split(" ", 2)
         if h in seen:
@@ -51,6 +53,46 @@ def source_dates(repo, emails):
         if email.lower() in emails:
             dates.append(date)
     return dates
+
+def gh_json(args, env):
+    """Run `gh api ...` (paginated calls print one JSON document per page) and return all pages as a list."""
+    out = subprocess.run(["gh", "api", *args], capture_output=True, text=True, env=env, check=True).stdout
+    dec, i, pages = json.JSONDecoder(), 0, []
+    while i < len(out):
+        if out[i].isspace():
+            i += 1
+            continue
+        obj, i = dec.raw_decode(out, i)
+        pages.append(obj)
+    return pages
+
+def api_dates(gh_user):
+    """Timestamps (only) of PRs you opened and PR reviews you submitted, last 365 days, from the work account.
+    The contributions GraphQL API hides private-org items (only a total), so this uses search + REST.
+    Returns (pr_dates, review_dates) as UTC strings ending in Z, exactly how git's %aI prints UTC, so re-runs dedupe."""
+    token = subprocess.run(["gh", "auth", "token", "--user", gh_user],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    env = {**os.environ, "GH_TOKEN": token}
+    since = (datetime.now(timezone.utc) - timedelta(days=364)).strftime("%Y-%m-%d")
+    login = subprocess.run(["gh", "api", "user", "--jq", ".login"],
+                           capture_output=True, text=True, env=env, check=True).stdout.strip()
+
+    def search(q):
+        items = []
+        for page in gh_json(["-X", "GET", "search/issues", "-f", f"q={q}", "-f", "per_page=100", "--paginate"], env):
+            items.extend(page["items"])
+        return items
+
+    prs = [i["created_at"] for i in search(f"author:{login} type:pr created:>={since}")]
+    reviews = []
+    for pr in search(f"reviewed-by:{login} type:pr -author:{login} updated:>={since}"):
+        repo = pr["repository_url"].split("/repos/", 1)[1]
+        for page in gh_json([f"repos/{repo}/pulls/{pr['number']}/reviews", "--paginate"], env):
+            reviews.extend(r["submitted_at"] for r in page
+                           if (r.get("user") or {}).get("login") == login and r.get("submitted_at")
+                           and r["submitted_at"][:10] >= since)
+    norm = lambda d: datetime.fromisoformat(d.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return [norm(d) for d in prs], [norm(d) for d in reviews]
 
 def load_repos_file(path):
     """Exact repo paths from a JSON file: {"repos": [...]}. No directory walking."""
@@ -89,6 +131,8 @@ def main():
     p.add_argument("--mirror", required=True, help="path of the personal mirror repo (created if missing)")
     p.add_argument("--name", required=True, help="author name for mirror commits")
     p.add_argument("--email", required=True, help="VERIFIED email on your personal GitHub account")
+    p.add_argument("--gh-user", help="gh CLI account of your WORK GitHub login. If given, the timestamps of "
+                   "PRs you opened and PR reviews you made (last 365 days) are mirrored too")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--log-dir", default=LOG_DIR,
                    help="folder for mirror.log (rotates at 5 MB, keeps 10 old files; default: logs/ next to this script)")
@@ -114,6 +158,18 @@ def main():
         per_repo.append((r, c))
         wanted.update(c)
 
+    if a.gh_user:
+        try:
+            prs, reviews = api_dates(a.gh_user)
+            for label, dates in (("github-api:pull-requests", prs), ("github-api:reviews", reviews)):
+                c = Counter(dates)
+                per_repo.append((label, c))
+                wanted.update(c)
+        except Exception as e:  # keep mirroring commits even if the API is unreachable
+            detail = (getattr(e, "stderr", "") or str(e)).strip().splitlines()[-1:] or [repr(e)]
+            print(f"warning: PR/review fetch failed, skipped: {detail[0]}", file=sys.stderr)
+            log.warning("PR/review fetch failed, skipped: %s", detail[0])
+
     existing = Counter()
     if os.path.isdir(os.path.join(mirror, ".git")):
         for d in git(mirror, "log", "--format=%aI", check=False).split():
@@ -126,12 +182,12 @@ def main():
     for r, c in per_repo:
         covered = c & left
         left -= covered
-        by_repo.append(f"{os.path.basename(r)}={sum((c - covered).values())}")
+        by_repo.append(f"{os.path.basename(r).replace('github-api:', '')}={sum((c - covered).values())}")
         say(f"repo {r}: matching={sum(c.values())} already_mirrored={sum(covered.values())} "
             f"new={sum((c - covered).values())}")
 
     say(f"source repos scanned : {len(repos)}")
-    say(f"matching commits     : {sum(wanted.values())}")
+    say(f"matching contributions: {sum(wanted.values())}")
     say(f"already mirrored     : {sum((wanted & existing).values())}")
     say(f"to create            : {sum(todo.values())}")
 
