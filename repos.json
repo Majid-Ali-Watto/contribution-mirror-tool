@@ -1,0 +1,6 @@
+{
+  "repos": [
+    "/path/to/app-fe",
+    "/path/to/app-api"
+  ]
+}
