@@ -1,4 +1,4 @@
-# contribution-mirror
+# contribution-mirror-tool
 
 Copies the **timestamps** of your work commits into a separate personal repo as empty commits, so your personal GitHub contribution graph reflects your work activity without exposing any work code.
 
@@ -25,7 +25,7 @@ Copies the **timestamps** of your work commits into a separate personal repo as 
 ./sync.sh --dry-run docker-learning              # preview for one folder
 ```
 
-Folder names are resolved as siblings of `contribution-mirror` first, then as paths, and are searched recursively. With no names, the repos in `repos.json` are scanned.
+Folder names are resolved as siblings of `contribution-mirror-tool` first, then as paths, and are searched recursively. With no names, the repos in `repos.json` are scanned.
 
 Running it again is safe. Only timestamps not already in the mirror are added.
 
