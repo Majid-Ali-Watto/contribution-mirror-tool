@@ -9,7 +9,7 @@ import time
 from . import sync
 from .config import load_config
 from .envfile import EnvFileError
-from .logsetup import log, setup_log
+from .logsetup import close_log, log, setup_log
 from .notify import notify
 from .remotes import real_host
 from .settings import LOG_DIR
@@ -46,6 +46,8 @@ def failure(reason, detail="", log_dir=LOG_DIR):
         log.error("scheduled sync failed: %s%s", reason, f" -- {detail}" if detail else "")
     except OSError:
         pass
+    finally:
+        close_log()
     notify("Contribution mirror sync failed", f"{reason}\n{detail}\nLog: {os.path.join(log_dir, 'mirror.log')}".strip(),
            urgent=True)
 

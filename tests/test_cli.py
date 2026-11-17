@@ -42,6 +42,14 @@ class EndToEnd(unittest.TestCase):
         r = subprocess.run(["git", "-C", self.mirror, "rev-list", "--count", "HEAD"], capture_output=True, text=True)
         return int(r.stdout) if r.returncode == 0 else 0
 
+    def test_the_log_file_is_released_when_a_run_ends(self):
+        # Windows cannot delete a file that is still open, so a leftover handler breaks cleanup there
+        from contribution_mirror import logsetup
+        self.run_cli()
+        self.assertEqual(logsetup.log.handlers, [])
+        self.run_cli("--apply")
+        self.assertEqual(logsetup.log.handlers, [])
+
     def test_dry_run_writes_nothing(self):
         out = self.run_cli()
         self.assertIn("to create            : 4", out)        # 2 + (1 + merge) from b

@@ -6,7 +6,7 @@ from collections import Counter
 
 from .activity import fetch_activity
 from .credentials import Creds, explicit_choice
-from .logsetup import say, setup_log
+from .logsetup import close_log, say, setup_log
 from .mirror_repo import ensure_repo, existing_dates, write_commits
 from .report import RunResult, attribute, print_totals, summary
 from .repos import group_by_scope, select_sources
@@ -47,6 +47,13 @@ def run(argv=None):
     """The core run: scan, compare, and (with --apply) write. Returns a RunResult."""
     a = build_parser().parse_args(argv)
     setup_log(a.log_dir)
+    try:
+        return _run(a)
+    finally:
+        close_log()                      # Windows cannot delete a log file that is still open
+
+
+def _run(a):
     mirror = os.path.abspath(a.mirror)
     emails = {e.lower() for e in a.work_email}
 

@@ -1,6 +1,8 @@
 name: tests
 
-# The suite is offline and uses only python and git, so it runs unchanged on all three operating systems.
+# The suite is offline and needs only Python and git, so it runs unchanged on all three operating systems.
+# Python is installed with uv, which has every version for every runner image (setup-python has no Python 3.9
+# build for the newest Ubuntu images).
 on:
   push:
   pull_request:
@@ -15,8 +17,6 @@ jobs:
         python-version: ["3.9", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
       - name: Run the tests
-        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+        run: uv run --python ${{ matrix.python-version }} --no-project python -W error::ResourceWarning -m unittest discover -s tests -v
