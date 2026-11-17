@@ -74,17 +74,41 @@ class EndToEnd(unittest.TestCase):
 
     def test_scan_failure_of_one_repo_does_not_stop_the_others(self):
         calls = []
-        real = scan.source_dates
+        real = scan.source_commits
         def flaky(repo, emails, env=None):
             calls.append(repo)
             if repo == self.repo_a:
                 raise RuntimeError("git log failed: boom")
             return real(repo, emails, env)
         err = io.StringIO()
-        with mock.patch.object(scan, "source_dates", flaky), contextlib.redirect_stderr(err):
+        with mock.patch.object(scan, "source_commits", flaky), contextlib.redirect_stderr(err):
             out = self.run_cli()
         self.assertIn("could not read commits", err.getvalue())
         self.assertIn("to create            : 2", out)        # only repo b's 2 commits
+
+
+class ClearErrors(EndToEnd):
+    def test_a_broken_repos_file_is_a_message_not_a_traceback(self):
+        with open(self.repos_file, "w") as f:
+            f.write("{oops")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(self.argv), 1)
+        self.assertIn("not valid JSON", err.getvalue())
+
+    def test_warnings_in_the_log_never_contain_a_token(self):
+        from contribution_mirror import logsetup
+        logs = os.path.join(self.tmp.name, "logs")
+        logsetup.setup_log(logs)
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                logsetup.warn("clone of https://x-access-token:ghp_SECRET@github.com/o/r.git failed")
+        finally:
+            logsetup.close_log()
+        with open(os.path.join(logs, "mirror.log"), encoding="utf-8") as f:
+            text = f.read() + err.getvalue()
+        self.assertNotIn("ghp_SECRET", text)
+        self.assertIn("https://***@github.com/o/r.git", text)
 
 
 if __name__ == "__main__":

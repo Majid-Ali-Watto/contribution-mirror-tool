@@ -17,7 +17,7 @@ git hosts it supports (`api.github.com`, `api.bitbucket.org`, `dev.azure.com`), 
 
 | What | Why | Where it goes |
 | --- | --- | --- |
-| The **author email and author date** of commits in the repos you list | to find your work activity | held in memory; only the dates are written to your mirror |
+| The **author email, author date and hash** of commits in the repos you list | to find your work activity (the hash only to count a commit that is in two listed repos once) | held in memory; only the dates are written to your mirror |
 | The **timestamps** of pull / merge requests you opened and reviews you made (from your git host's API) | to include them in the mirror | only the timestamps are written to your mirror |
 | Your settings in `config/.env` and `config/repos.json` | to know who you are and which projects to scan | stay in those files, on your computer (git-ignored) |
 | Tokens and logins already on your computer: environment variables, the `gh` / `glab` / `az` command line tools, your git credential helper | to talk to your git host | used in memory for the request; **never printed, logged or written to disk** by the tool |
@@ -25,13 +25,21 @@ git hosts it supports (`api.github.com`, `api.bitbucket.org`, `dev.azure.com`), 
 It does **not** read or copy source code, file names or paths, commit messages, commit hashes, repository names or pull
 request titles into the mirror. See [how it works](how-it-works.md).
 
+## The setup page
+
+`mirror.py ui` starts a small web server **on your own computer only** (`127.0.0.1`), protected by a one-time key, so
+that your browser can show the setup and sync page. It loads nothing from the internet and sends nothing anywhere
+except what a sync sends anyway. Token values are never shown on it. Details: [GUI](gui.md#security).
+
 ## What the tool writes
 
 - **Your mirror repo** (on the host you choose): empty commits with the message `mirror`, your chosen name and email, and
   the original dates. This is the only data that leaves your computer on purpose, and it goes to *your own* repository.
 - **Local files** in the project folder: `logs/mirror.log` (a summary line per run, warnings, and the names of your repo
-  folders; never tokens) and `logs/api-state.json` (your account name on the git host and the time of the last run).
-- **Temporary clones** of repos you listed by URL only (commit metadata, no file contents), deleted when the scan ends.
+  folders; never tokens) and `logs/api-state.json` (per host: your account name, where its login came from, and the time of the last run; and
+  what kind of server each self-hosted host is).
+- **Temporary clones** of repos you listed by URL only (commit metadata, no file contents), deleted when the scan ends;
+  or, only if you set `MIRROR_CLONE_CACHE`, kept in that folder between runs.
 
 Delete `logs/` at any time; it is rebuilt. To remove the mirrored data, delete the mirror repo on your git host.
 

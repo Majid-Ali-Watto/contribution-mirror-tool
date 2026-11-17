@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from collections import Counter
@@ -54,6 +55,68 @@ class Environment(unittest.TestCase):
         self.assertIsNone(gitutil.run_git(["--version"], _path.GIT_ENV, 30))
         err = gitutil.run_git(["-C", os.devnull, "log"], _path.GIT_ENV, 30)
         self.assertTrue(err and "fatal" in err.lower())
+
+
+class WhatCountsAsACommit(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = _path.make_repo(os.path.join(self.tmp.name, "r"), [("me@work.com", "2026-01-01T10:00:00+00:00"),
+                                                                       ("a.me@work.com", "2026-01-02T10:00:00+00:00")])
+
+    def test_a_lookalike_email_is_not_mine(self):
+        self.assertEqual(gitutil.source_dates(self.repo, {"me@work.com"}, env=_path.GIT_ENV),
+                         Counter({"2026-01-01T10:00:00Z": 1}))
+
+    def test_a_stash_is_not_a_contribution(self):
+        path = os.path.join(self.repo, "f.txt")
+        with open(path, "w") as f:
+            f.write("x")
+        env = {**_path.GIT_ENV, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "me@work.com", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "me@work.com", "GIT_AUTHOR_DATE": "2026-05-05T10:00:00+00:00",
+               "GIT_COMMITTER_DATE": "2026-05-05T10:00:00+00:00"}
+        run = lambda *a: subprocess.run(["git", "-C", self.repo, *a], check=True, capture_output=True, env=env)
+        run("add", "f.txt")
+        run("stash")
+        self.assertEqual(sum(gitutil.source_dates(self.repo, {"me@work.com"}, env=_path.GIT_ENV).values()), 1)
+
+    def test_commits_are_returned_by_hash(self):
+        commits = gitutil.source_commits(self.repo, {"me@work.com"}, env=_path.GIT_ENV)
+        self.assertEqual(list(commits.values()), ["2026-01-01T10:00:00Z"])
+        self.assertRegex(next(iter(commits)), r"^[0-9a-f]{40,64}$")
+
+    def test_utc_has_one_spelling_whatever_the_git_version(self):
+        # git >= 2.45 prints UTC as Z, older versions as +00:00: both must be the same date
+        self.assertEqual(gitutil.canonical_date("2026-01-01T10:00:00+00:00"), "2026-01-01T10:00:00Z")
+        self.assertEqual(gitutil.canonical_date("2026-01-01T10:00:00-00:00"), "2026-01-01T10:00:00Z")
+        self.assertEqual(gitutil.canonical_date("2026-01-01T10:00:00Z"), "2026-01-01T10:00:00Z")
+        self.assertEqual(gitutil.canonical_date("2026-01-01T10:00:00+05:30"), "2026-01-01T10:00:00+05:30")
+
+
+class ChildEnvironment(unittest.TestCase):
+    def test_this_tools_tokens_are_not_passed_to_other_programs(self):
+        env = gitutil.child_env({"WORK_TOKEN": "a", "WORK_GITHUB_TOKEN": "b", "WORK_AZURE_DEVOPS_TOKEN": "c",
+                                 "GH_TOKEN": "user's own", "PATH": "/bin", "WORK_EMAIL": "me@w"})
+        self.assertEqual(env, {"GH_TOKEN": "user's own", "PATH": "/bin", "WORK_EMAIL": "me@w"})
+
+    def test_no_credential_manager_window_and_no_ssh_prompt_in_parallel_fetches(self):
+        with mock.patch.dict(os.environ, {**_path.GIT_ENV, "WORK_TOKEN": "s"}):
+            os.environ.pop("GIT_SSH_COMMAND", None)
+            os.environ.pop("GIT_SSH", None)
+            env = gitutil.work_env(batch_ssh=True)
+            plain = gitutil.work_env()
+        self.assertEqual((env["GCM_INTERACTIVE"], env["GIT_SSH_COMMAND"]), ("never", "ssh -o BatchMode=yes"))
+        self.assertNotIn("WORK_TOKEN", env)
+        self.assertNotIn("GIT_SSH_COMMAND", plain)
+
+    def test_a_users_core_ssh_command_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = _path.make_repo(os.path.join(d, "r"), [])
+            subprocess.run(["git", "-C", repo, "config", "core.sshCommand", "ssh -i ~/.ssh/work"], check=True,
+                           env=_path.GIT_ENV)
+            with mock.patch.dict(os.environ, _path.GIT_ENV):
+                os.environ.pop("GIT_SSH_COMMAND", None)
+                self.assertNotIn("GIT_SSH_COMMAND", gitutil.work_env(repo, batch_ssh=True))
 
 
 if __name__ == "__main__":

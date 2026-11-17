@@ -5,6 +5,8 @@ import os
 import subprocess
 from typing import NamedTuple
 
+from ..gitutil import child_env
+
 
 class Token(NamedTuple):
     """A credential found on this machine."""
@@ -22,12 +24,24 @@ def run_cli(cmd, timeout=30, any_status=False):
     """Output of a vendor CLI (gh, glab, az), or None if it is missing or fails. With any_status=True the combined
     stdout+stderr is returned whatever the exit status (`gh auth status` lists accounts even when one is invalid)."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                           env=child_env())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if any_status:
         return r.stdout + r.stderr
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def listed_owners(repos):
+    """Lowercase owners (user, organisation, workspace, group) of the listed 'owner/repo' paths."""
+    return {r.split("/", 1)[0].lower() for r in repos if "/" in r}
+
+
+def owned_by(full_name, owners):
+    """True if a pull request in repo `full_name` belongs to the listed work: its owner is one of `owners`. With no
+    listed repos, or when the host did not say which repo it is, everything is kept (nothing is silently dropped)."""
+    return not owners or not full_name or full_name.split("/", 1)[0].lower() in owners
 
 
 class Provider:
@@ -56,6 +70,10 @@ class Provider:
         """Value of the Authorization header that lets git talk https to this host with `tok`."""
         return basic(f"{self.git_user}:{tok.secret}")
 
+    def env_token_vars(self, scope):
+        """Conventional variables that may hold a token for `scope`."""
+        return self.env_vars
+
     def cli_tokens(self, scope, only_user=None):
         """Tokens of this vendor's own CLI, if installed and logged in."""
         return iter(())
@@ -69,5 +87,6 @@ class Provider:
         return (0, 0)
 
     def fetch(self, api, login, repos, since):
-        """(timestamps of PRs you opened, timestamps of reviews you made) since a date, as ISO strings."""
+        """(timestamps of PRs you opened, timestamps of reviews you made) since a date, as ISO strings. Only activity
+        in the listed repos' owners (or, where the host cannot say that, the listed projects) is returned."""
         raise NotImplementedError

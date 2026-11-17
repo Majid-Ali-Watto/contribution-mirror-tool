@@ -98,5 +98,25 @@ class TheScheduledRun(unittest.TestCase):
         self.assertIn("config/.env", failure.call_args[0][0])
 
 
+class NoTokensInReports(TheScheduledRun):
+    def test_a_token_in_a_url_never_reaches_the_log_or_the_notification(self):
+        with mock.patch.object(scheduled, "wait_for_network", return_value=True), \
+                mock.patch.object(scheduled.sync, "run_sync",
+                                  side_effect=RuntimeError("clone of https://me:ghp_SECRET@github.com/o/r failed")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(scheduled.main([]), 1)
+        shown = self.log_text() + err.getvalue() + " ".join(map(str, self.notify.call_args[0]))
+        self.assertNotIn("ghp_SECRET", shown)
+        self.assertIn("https://***@github.com/o/r", shown)
+
+    def test_another_run_in_progress_is_not_a_failure(self):
+        from contribution_mirror.runlock import RunLocked
+        with mock.patch.object(scheduled, "wait_for_network", return_value=True), \
+                mock.patch.object(scheduled.sync, "run_sync", side_effect=RunLocked("another run is in progress")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(scheduled.main([]), 0)
+        self.notify.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

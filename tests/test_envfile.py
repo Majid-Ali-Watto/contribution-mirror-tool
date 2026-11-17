@@ -90,5 +90,23 @@ class LoadConfig(unittest.TestCase):
                     config.load_config(path)
 
 
+class SettingsFilePermissions(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "file modes are a Linux/macOS matter")
+    def test_a_settings_file_others_can_read_is_reported(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, ".env")
+            open(path, "w").close()
+            os.chmod(path, 0o644)
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                config.warn_if_readable_by_others(path)
+            self.assertIn("chmod 600", err.getvalue())
+            os.chmod(path, 0o600)
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                config.warn_if_readable_by_others(path)
+            self.assertEqual(err.getvalue(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

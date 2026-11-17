@@ -2,11 +2,22 @@
 import logging
 import logging.handlers
 import os
+import re
 import sys
 
 from .settings import LOG_BACKUPS, LOG_MAX_BYTES
 
 log = logging.getLogger("mirror")
+
+# user[:password-or-token]@ in an http(s) URL (the form `scheme://user:token@host/owner/repo`)
+_URL_CREDENTIALS = re.compile(r"(https?://)[^/@\s]+@", re.I)
+
+
+def redact(text):
+    """`text` with the credentials of every http(s) URL in it replaced by ***: safe for the screen, the log and a
+    notification."""
+    return _URL_CREDENTIALS.sub(r"\1***@", str(text))
+
 
 def close_log():
     """Release the log file. Windows cannot delete or move a file that is still open, so a run closes it when it ends."""
@@ -34,5 +45,6 @@ def say(msg):
 
 def warn(msg):
     """A problem that does not stop the run: on stderr and as a WARNING line in the log."""
+    msg = redact(msg)
     print(f"warning: {msg}", file=sys.stderr)
     log.warning("%s", msg)

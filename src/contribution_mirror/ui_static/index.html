@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Contribution Mirror</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/theme.js"></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>Contribution Mirror</h1>
+        <p class="sub">Work activity dates into your personal graph. Nothing else leaves your machine.</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="theme" role="group" aria-label="Colour theme">
+        <button type="button" data-theme-choice="system" aria-pressed="true" title="Follow your system">System</button>
+        <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+      </div>
+      <span id="status" class="pill">Loading…</span>
+    </div>
+  </header>
+
+  <div class="tabs-bar">
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-setup" aria-controls="view-setup" aria-selected="true" tabindex="0"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Setup</span></button>
+      <button role="tab" id="tab-sync" aria-controls="view-sync" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span>Sync</span><i class="busy-dot" aria-hidden="true"></i></button>
+      <button role="tab" id="tab-accounts" aria-controls="view-accounts" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Accounts</span></button>
+      <button role="tab" id="tab-schedule" aria-controls="view-schedule" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Schedule</span></button>
+      <button role="tab" id="tab-logs" aria-controls="view-logs" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg><span>Logs</span></button>
+    </nav>
+  </div>
+
+  <main>
+    <div id="fatal" class="banner error" hidden></div>
+
+    <!-- ============================================================ SETUP -->
+    <section id="view-setup" role="tabpanel" aria-labelledby="tab-setup">
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">1</span> You</h2>
+          <span id="settings-dirty" class="dirty" hidden>Unsaved changes</span>
+        </div>
+        <p class="hint">Saved to <code id="env-path"></code> (only you can read it). Tokens and advanced options in that
+          file are kept as they are.</p>
+        <div id="overridden" class="banner warn" hidden></div>
+        <form id="settings" novalidate>
+          <div class="grid">
+            <label class="field wide">
+              <span class="label">Work email(s)</span>
+              <input name="WORK_EMAIL" autocomplete="off" placeholder="you@company.com">
+              <span class="help">The author email of your commits in the work repos. Several: separate with spaces.</span>
+            </label>
+            <label class="field">
+              <span class="label">Your name</span>
+              <input name="PERSONAL_NAME" autocomplete="name" placeholder="Your Name">
+              <span class="help">Author name of the mirror commits.</span>
+            </label>
+            <label class="field">
+              <span class="label">Personal email</span>
+              <input name="PERSONAL_EMAIL" type="email" autocomplete="email" placeholder="you@example.com">
+              <span class="help">Must be <strong>verified</strong> on your personal account, or the graph stays empty.</span>
+            </label>
+            <label class="field wide">
+              <span class="label">Mirror repo</span>
+              <span class="row">
+                <input name="EXPECTED_REMOTE" autocomplete="off" placeholder="git@github.com:you/work-contributions.git">
+                <button type="button" id="check-remote" class="secondary">Check</button>
+              </span>
+              <span class="help">An empty <strong>private</strong> repo in your personal account. Sync never pushes anywhere else.</span>
+              <span id="remote-result" class="result" hidden></span>
+            </label>
+          </div>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="grid">
+              <label class="field">
+                <span class="label">Mirror folder</span>
+                <input name="MIRROR_DIR" autocomplete="off" placeholder="~/work-contributions">
+                <span class="help">Local copy of the mirror. Created if missing.</span>
+              </label>
+              <label class="field">
+                <span class="label">Pull requests and reviews</span>
+                <select name="MIRROR_PR_REVIEWS">
+                  <option value="on">Mirror them too</option>
+                  <option value="off">Commits only</option>
+                </select>
+                <span class="help">Uses a login already on this computer (gh, glab, credential helper).</span>
+              </label>
+              <label class="field wide">
+                <span class="label">Clone cache folder</span>
+                <input name="MIRROR_CLONE_CACHE" autocomplete="off" placeholder="empty: temporary clones">
+                <span class="help">Keep clones of URL entries between runs (faster for big repos). Keep it private.</span>
+              </label>
+            </div>
+            <p id="tokens" class="hint"></p>
+          </details>
+          <div id="settings-error" class="banner error" hidden></div>
+          <div class="actions">
+            <button type="submit" class="primary">Save</button>
+            <span id="settings-saved" class="ok-text" hidden>Saved</span>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">2</span> Projects</h2>
+          <span id="repos-dirty" class="dirty" hidden>Unsaved changes</span>
+        </div>
+        <p class="hint">Work repos to read dates from: a local clone path or a git URL (any host). Saved to
+          <code id="repos-path"></code>.</p>
+        <div id="repos-legacy" class="banner info" hidden>This file uses the older <code>remote_repos</code> key. Saving
+          moves those URLs into the one list; nothing else changes.</div>
+        <div id="repos-error" class="banner error" hidden></div>
+        <ul id="repo-list" class="repo-list"></ul>
+        <p id="repo-empty" class="empty" hidden>No projects yet. Add a path or URL below, or find the repos in a folder.</p>
+        <form id="add-repo" class="row">
+          <input id="new-repo" autocomplete="off" placeholder="/path/to/clone  or  git@github.com:org/repo.git">
+          <button type="submit" class="secondary">Add</button>
+        </form>
+        <details class="more">
+          <summary>Find repos in a folder</summary>
+          <form id="find" class="row">
+            <input id="find-folder" autocomplete="off" placeholder="~/work">
+            <button type="submit" class="secondary">Search</button>
+          </form>
+          <div id="find-result"></div>
+        </details>
+        <div class="actions">
+          <button id="save-repos" class="primary">Save projects</button>
+          <span id="repos-saved" class="ok-text" hidden>Saved</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ SYNC -->
+    <section id="view-sync" role="tabpanel" aria-labelledby="tab-sync" hidden>
+      <div id="not-ready" class="banner warn" hidden></div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Run</h2>
+          <span id="run-state" class="pill"></span>
+        </div>
+        <p class="hint"><strong>Preview</strong> changes nothing. <strong>Sync</strong> adds the new dates to your mirror
+          as empty commits and pushes them to <code id="sync-remote"></code>.</p>
+        <div class="actions">
+          <button id="run-preview" class="secondary">Preview</button>
+          <button id="run-sync" class="primary">Sync now</button>
+          <button id="run-cancel" class="danger" hidden>Stop</button>
+        </div>
+      </div>
+
+      <div id="results" class="card" hidden>
+        <div class="card-head"><h2 id="results-title">Result</h2></div>
+        <div id="run-warnings" class="banner warn" hidden></div>
+        <div class="tiles">
+          <div class="tile"><span class="num" id="t-repos">–</span><span class="cap">sources</span></div>
+          <div class="tile"><span class="num" id="t-matching">–</span><span class="cap">your contributions found</span></div>
+          <div class="tile"><span class="num" id="t-mirrored">–</span><span class="cap">already mirrored</span></div>
+          <div class="tile accent"><span class="num" id="t-new">–</span><span class="cap" id="t-new-cap">new</span></div>
+        </div>
+        <div id="calendar-wrap" class="calendar-wrap" hidden>
+          <div class="cal-head">
+            <h3>Your graph from the mirror, last 12 months</h3>
+            <span id="cal-note" class="help"></span>
+          </div>
+          <div class="cal-scroll"><div id="calendar" class="calendar" role="img"></div></div>
+          <div class="cal-legend">
+            <span>Less</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>More</span>
+            <span class="sep"></span><i class="l2 new"></i><span id="cal-new-label">day with new dates</span>
+          </div>
+          <p id="cal-day" class="hint" aria-live="polite">Point at a day to see its numbers.</p>
+        </div>
+        <table id="sources" class="sources">
+          <thead><tr><th>Source</th><th class="n">Found</th><th class="n">Already mirrored</th><th class="n">New</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p id="push-result" class="hint"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Output</h2>
+          <label class="toggle"><input type="checkbox" id="only-problems"> Warnings and errors only</label>
+        </div>
+        <pre id="log" class="log" aria-live="polite"><span class="muted">Nothing run yet.</span></pre>
+      </div>
+    </section>
+    <!-- ============================================================ ACCOUNTS -->
+    <section id="view-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Logins per host</h2>
+          <span id="acc-state" class="pill"></span>
+        </div>
+        <p class="hint">Commits are read with plain git, so they need no login here. Pull requests and reviews use the
+          login shown for each host: the one that has your commits in your projects. Token values are never shown,
+          only where a login came from.</p>
+        <div class="actions">
+          <button id="acc-check" class="primary">Check logins</button>
+          <button id="acc-recheck" class="secondary">Compare all logins again</button>
+        </div>
+        <div id="acc-error" class="banner error" hidden></div>
+        <div id="acc-note" class="banner info" hidden></div>
+        <table id="acc-table" class="sources" hidden>
+          <thead><tr><th>Host</th><th>Kind</th><th>Login used</th><th class="n">Projects</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint">To force an account, set <code>WORK_TOKEN</code>, <code>WORK_GITHUB_TOKEN</code>,
+          <code>WORK_GH_USER</code>… in <code>config/.env</code>. See docs/authentication.md.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ SCHEDULE -->
+    <section id="view-schedule" role="tabpanel" aria-labelledby="tab-schedule" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Automatic runs</h2>
+          <span id="sch-state" class="pill"></span>
+        </div>
+        <p class="hint">Uses your system's own scheduler (<span id="sch-platform"></span>). A scheduled run reads the
+          settings and projects saved in Setup each time it starts, so changing them needs nothing here.</p>
+        <div id="sch-not-ready" class="banner warn" hidden>Setup is not complete: scheduled runs will fail until it is.</div>
+        <div id="sch-unsupported" class="banner error" hidden></div>
+        <form id="sch-form">
+          <label class="check"><input type="checkbox" name="login"> <span><strong>At login</strong>
+            <span class="help">a few minutes after you log in</span></span></label>
+          <label class="check"><input type="checkbox" name="daily"> <span><strong>Every day at</strong></span>
+            <input type="time" name="time" class="time" value="18:00" required></label>
+          <label class="field tz" id="sch-tz-field" hidden>
+            <span class="label">Time zone (optional, Linux)</span>
+            <input name="timezone" autocomplete="off" placeholder="local time, or e.g. Europe/London">
+          </label>
+          <div id="sch-error" class="banner error" hidden></div>
+          <div class="actions">
+            <button type="submit" class="primary">Apply</button>
+            <button type="button" id="sch-off" class="secondary">Turn all off</button>
+            <span id="sch-saved" class="ok-text" hidden>Applied</span>
+          </div>
+        </form>
+        <details class="more" id="sch-steps-box" hidden>
+          <summary>What was changed</summary>
+          <pre id="sch-steps" class="log small"></pre>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============================================================ LOGS -->
+    <section id="view-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>Runs</h2>
+          <button id="logs-refresh" class="secondary">Refresh</button>
+        </div>
+        <p class="hint">New commits per sync, from <code id="logs-dir"></code>.</p>
+        <div id="runs-chart" class="runs-chart" role="img" aria-label="Commits created per run"></div>
+        <p id="runs-empty" class="empty" hidden>No sync logged yet.</p>
+        <p id="runs-detail" class="hint" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Log</h2>
+          <label class="toggle"><input type="checkbox" id="logs-problems"> Warnings and errors only</label>
+        </div>
+        <table id="logs-table" class="sources logs">
+          <thead><tr><th>When</th><th>Level</th><th>Message</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p id="logs-empty" class="empty" hidden>The log is empty.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <h2>Sync now?</h2>
+      <p id="confirm-text"></p>
+      <div class="actions">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button value="ok" class="primary">Sync</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

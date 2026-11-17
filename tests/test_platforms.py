@@ -124,6 +124,114 @@ class Common(unittest.TestCase):
         self.assertIn("would", out.getvalue())
 
 
+class Recorder:
+    """Stands in for subprocess.run: records commands, answers like the scheduler would."""
+    def __init__(self, answers=None):
+        self.calls, self.answers = [], answers or {}
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(list(cmd))
+        for prefix, (code, out) in self.answers.items():
+            if tuple(cmd[:len(prefix)]) == prefix:
+                return unittest.mock.Mock(returncode=code, stdout=out, stderr="")
+        return unittest.mock.Mock(returncode=0, stdout="", stderr="")
+
+    def ran(self, *words):
+        return [c for c in self.calls if all(w in c for w in words)]
+
+
+class TurningRunsOnAndOff(unittest.TestCase):
+    """What the setup page and `schedule install/uninstall` do: the scheduler always ends up exactly as asked."""
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = self.tmp.name
+        env = unittest.mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": os.path.join(self.home, ".config")})
+        env.start()                                          # never the real ~/.config, whatever the machine
+        self.addCleanup(env.stop)
+
+    def apply(self, platform, login, daily, time="18:00", tz="", run=None):
+        run = run or Recorder()
+        state = schedule.apply(login, daily, time, tz, platform=platform, python="/usr/bin/python3", home=self.home,
+                               run=run, say=lambda *_: None)
+        return state, run
+
+    def test_linux_on_change_time_login_only_off(self):
+        state, run = self.apply("linux", True, True)
+        self.assertEqual((state["login"], state["daily"], state["time"]), (True, True, "18:00"))
+        self.assertTrue(run.ran("enable", "--now"))
+        self.assertFalse(run.ran("restart"))                  # a fresh install has nothing to restart
+
+        state, run = self.apply("linux", True, True, "14:00", "Asia/Karachi")
+        self.assertEqual((state["time"], state["timezone"]), ("14:00", "Asia/Karachi"))
+        self.assertTrue(run.ran("restart"))                   # a running timer keeps its old time until restarted
+
+        state, run = self.apply("linux", True, True, "14:00", "Asia/Karachi")
+        self.assertFalse(run.ran("restart"))                  # nothing changed: nothing restarted
+
+        state, _ = self.apply("linux", True, False)
+        self.assertEqual((state["login"], state["daily"]), (True, False))
+        state, _ = self.apply("linux", False, True, "09:30")
+        self.assertEqual((state["login"], state["daily"], state["time"]), (False, True, "09:30"))
+
+        state, run = self.apply("linux", False, False)
+        self.assertEqual((state["login"], state["daily"]), (False, False))
+        self.assertTrue(run.ran("disable", "--now"))
+        self.assertEqual(schedule.existing_files("linux", self.home), {})   # the unit files are gone
+
+    def test_linux_reads_a_hand_written_timer(self):
+        d = os.path.join(self.home, ".config", "systemd", "user")
+        os.makedirs(d)
+        with open(os.path.join(d, "contribution-mirror.timer"), "w") as f:
+            f.write("[Timer]\n# at login\nOnStartupSec=5min\n# daily\nOnCalendar=*-*-* 18:00:00 Asia/Karachi\n"
+                    "Persistent=true\n")
+        self.assertEqual(schedule.describe(schedule.current("linux", self.home)),
+                         "automatic runs: at login and every day at 18:00 Asia/Karachi")
+
+    def test_macos_changing_the_time_never_reloads_the_login_agent(self):
+        state, run = self.apply("macos", True, True)
+        self.assertEqual(len(run.ran("bootstrap")), 2)
+        state, run = self.apply("macos", True, True, "14:00")
+        self.assertEqual(state["time"], "14:00")
+        # only the daily agent is reloaded: reloading the login agent would run a sync right now (RunAtLoad)
+        self.assertTrue(run.ran("bootout") and all(c[-1].endswith(".daily") for c in run.ran("bootout")))
+        state, run = self.apply("macos", False, True, "14:00")
+        self.assertEqual((state["login"], state["daily"]), (False, True))
+        self.assertTrue(any(c[-1].endswith(".login") for c in run.ran("bootout")))
+        state, _ = self.apply("macos", False, False)
+        self.assertEqual(schedule.existing_files("macos", self.home), {})
+
+    def test_macos_a_failing_load_is_an_error(self):
+        with self.assertRaises(schedule.ScheduleError):
+            self.apply("macos", True, True, run=Recorder({("launchctl", "bootstrap"): (5, "Bootstrap failed: 5")}))
+
+    def test_windows_tasks_follow_the_choice(self):
+        _, run = self.apply("windows", False, True, "14:00")
+        self.assertTrue(run.ran("/Create", "contribution-mirror-daily", "14:00"))
+        self.assertTrue(run.ran("/Delete", "contribution-mirror-login"))
+        self.assertFalse(run.ran("/Create", "contribution-mirror-login"))
+        xml = "<Task><Triggers><CalendarTrigger><StartBoundary>2026-01-01T14:00:00</StartBoundary></CalendarTrigger></Triggers></Task>"
+        answers = Recorder({("schtasks", "/Query", "/TN", "contribution-mirror-login"): (1, "not found"),
+                            ("schtasks", "/Query", "/TN", "contribution-mirror-daily"): (0, xml)})
+        self.assertEqual(schedule.describe(schedule.current("windows", run=answers)), "automatic runs: every day at 14:00")
+        _, run = self.apply("windows", False, False)
+        self.assertEqual(len(run.ran("/Delete")), 2)
+
+    def test_command_line_options(self):
+        import posixpath
+        timer_path = posixpath.join(schedule._systemd_dir(self.home), "contribution-mirror.timer")
+        files, _, _ = schedule.plan("install", "linux", "/p", home=self.home, login=False)
+        timer = dict(files)[timer_path]
+        self.assertNotIn("OnStartupSec", timer)
+        self.assertIn("OnCalendar", timer)
+        files, _, _ = schedule.plan("install", "linux", "/p", home=self.home, daily=False)
+        timer = dict(files)[timer_path]
+        self.assertNotIn("OnCalendar", timer)
+        _, cmds, dels = schedule.plan("install", "linux", "/p", home=self.home, login=False, daily=False)
+        self.assertTrue(dels and any("disable" in c for c in cmds))   # both off = uninstall
+
+
 import unittest.mock  # noqa: E402  (used above through unittest.mock.patch)
 
 if __name__ == "__main__":

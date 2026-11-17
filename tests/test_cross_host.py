@@ -81,7 +81,8 @@ class MirrorOnAnyHost(Isolated):
             host = push.real_host(expected)
             with self.subTest(host=name), mock.patch.object(type(provider), "cli_tokens", lambda s, scope, only_user=None: iter([Token("cli", "SECRET")])), \
                     mock.patch.object(push, "run_git", fake_run_git), mock.patch.object(push, "_git", return_value=(0, "", "")), \
-                    mock.patch.object(push, "helper_token", lambda h: None):
+                    mock.patch.object(push, "helper_token", lambda h: None), \
+                    mock.patch.object(push, "_token_owns", lambda *a: True):
                 self.assertIsNone(push._push_with_token(self.cfg(expected)))
             self.assertIn(https, seen["args"])
             self.assertEqual(seen["args"][-1], "main:main")
@@ -113,8 +114,8 @@ def github_routes(h):
     created, reviewed = days_ago(10), days_ago(9)
     h.routes["/user"] = (200, {"login": "me"})
     h.routes["/search/issues"] = lambda q: (200, {"total_count": 1, "items": [{"created_at": created}]}) if q["q"].startswith("author:me") \
-        else (200, {"total_count": 1, "items": [{"number": 9, "repository_url": f"{h.url}/repos/o/r"}]})
-    h.routes["/repos/o/r/pulls/9/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed}])
+        else (200, {"total_count": 1, "items": [{"number": 9, "repository_url": f"{h.url}/repos/acme/web"}]})
+    h.routes["/repos/acme/web/pulls/9/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed}])
     return 1, 1
 
 
@@ -129,8 +130,8 @@ def gitea_routes(h):
     created, reviewed = days_ago(10), days_ago(9)
     h.routes["/user"] = (200, {"login": "me"})
     h.routes["/repos/issues/search"] = lambda q: (200, [{"created_at": created}]) if q.get("created_by") == "me" \
-        else (200, [{"number": 5, "user": {"login": "x"}, "repository": {"full_name": "o/r"}}])
-    h.routes["/repos/o/r/pulls/5/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed, "state": "APPROVED"}])
+        else (200, [{"number": 5, "user": {"login": "x"}, "repository": {"full_name": "acme/tool"}}])
+    h.routes["/repos/acme/tool/pulls/5/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed, "state": "APPROVED"}])
     return 1, 1
 
 

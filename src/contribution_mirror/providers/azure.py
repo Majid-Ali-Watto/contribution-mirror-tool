@@ -58,8 +58,12 @@ class AzureDevOps(Provider):
             project, name = self._project_repo(repo)
             skip = 0
             while True:
+                # minTime + queryTimeRangeType=created: the server returns only the window (the date is still checked
+                # below, so a server that ignores them is merely slower)
                 data = api.get(f"/{project}/_apis/git/repositories/{name}/pullrequests", **VERSION, **{
-                    "searchCriteria.status": "all", "searchCriteria.creatorId": me, "$top": 100, "$skip": skip})
+                    "searchCriteria.status": "all", "searchCriteria.creatorId": me,
+                    "searchCriteria.minTime": f"{since.isoformat()}T00:00:00Z",
+                    "searchCriteria.queryTimeRangeType": "created", "$top": 100, "$skip": skip})
                 batch = data.get("value", [])
                 out += [pr["creationDate"] for pr in batch if parse_iso(pr["creationDate"]).date() >= since]
                 if len(batch) < 100:

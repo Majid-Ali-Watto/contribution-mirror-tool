@@ -125,5 +125,48 @@ class CandidateOrder(unittest.TestCase):
             self.assertTrue(credentials.explicit_choice())
 
 
+class TokensStayWithTheirHost(unittest.TestCase):
+    ENV = {**CandidateOrder.ENV, "GIT_HOST_PROVIDERS": "", "WORK_GITLAB_API_URL": "", "WORK_GITHUB_API_URL": "",
+           "GH_ENTERPRISE_TOKEN": "", "GITHUB_ENTERPRISE_TOKEN": ""}
+
+    def run_candidates(self, provider, scope, env):
+        with mock.patch.dict(os.environ, {**self.ENV, **env}), \
+                mock.patch.object(type(provider), "cli_tokens", lambda self, s, only_user=None: iter([Token("cli", "c")])), \
+                mock.patch.object(credentials, "helper_token", lambda host: Token("git-credential", "h")):
+            return [t.secret for t in credentials.candidates(provider, scope, None)]
+
+    def test_a_server_identified_only_by_probing_gets_no_general_token(self):
+        got = self.run_candidates(PROVIDERS["gitlab"], "claims-to-be-gitlab.example",
+                                  {"WORK_TOKEN": "w", "GITLAB_TOKEN": "g"})
+        self.assertEqual(got, ["c", "h"])                    # only what is tied to that host (CLI, credential helper)
+
+    def test_a_named_self_hosted_server_does(self):
+        got = self.run_candidates(PROVIDERS["gitlab"], "git.corp.example",
+                                  {"WORK_TOKEN": "w", "GIT_HOST_PROVIDERS": "git.corp.example=gitlab"})
+        self.assertEqual(got, ["w"])
+
+    def test_a_github_com_token_never_goes_to_github_enterprise(self):
+        env = {"GH_TOKEN": "dotcom", "GH_ENTERPRISE_TOKEN": "ghe", "GIT_HOST_PROVIDERS": "ghe.corp.example=github"}
+        self.assertEqual(self.run_candidates(GITHUB, "ghe.corp.example", env), ["ghe", "c", "h"])
+        self.assertEqual(self.run_candidates(GITHUB, "github.com", env), ["dotcom", "c", "h"])
+
+
+@mock.patch.object(credentials, "Api", FakeApi)
+class ReusingLastRunsAccount(unittest.TestCase):
+    def test_the_saved_account_is_used_without_comparing_all_of_them(self):
+        scored = []
+        real_score = GITHUB.score
+        with cands(Token("gh:me-personal", "tok-personal"), Token("gh:me-work", "tok-work")), \
+                mock.patch.object(type(GITHUB), "score", lambda self, *a: scored.append(a) or real_score(*a)):
+            p = credentials.Creds(REPOS, None, {"github.com": ("gh:me-work", "me-work")}).pick("github.com")
+        self.assertEqual((p.login, scored), ("me-work", []))
+
+    def test_a_saved_account_that_changed_is_compared_normally(self):
+        with cands(Token("gh:me-work", "tok-personal"), Token("other", "tok-work")):   # same source, other login now
+            p = credentials.Creds(REPOS, None, {"github.com": ("gh:me-work", "me-work")}).pick("github.com")
+        self.assertEqual(p.login, "me-work")                 # found by scoring, via the other token
+        self.assertEqual(p.source, "other")
+
+
 if __name__ == "__main__":
     unittest.main()

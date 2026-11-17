@@ -34,7 +34,7 @@ class Files(unittest.TestCase):
 
     def test_every_relative_link_in_the_docs_resolves(self):
         broken = []
-        for md in ["README.md", *sorted(glob.glob(os.path.join(ROOT, "docs", "*.md")))]:
+        for md in ["README.md", "CLAUDE.md", *sorted(glob.glob(os.path.join(ROOT, "docs", "*.md")))]:
             path = md if os.path.isabs(md) else os.path.join(ROOT, md)
             for m in re.finditer(r"\]\(([^)\s]+)\)", read(os.path.relpath(path, ROOT))):
                 target = m.group(1).split("#")[0]
@@ -87,10 +87,12 @@ class Files(unittest.TestCase):
                     if any(m.group(1) not in placeholders for pat in patterns for m in pat.finditer(text)) \
                             or any(p.search(text) for p in private):
                         offenders.append(rel)
-        for name in ("README.md", "LICENSE"):
+        for name in ("README.md", "LICENSE", "CLAUDE.md"):
             with open(os.path.join(ROOT, name), encoding="utf-8") as f:
-                if any(p.search(f.read()) for p in private):
-                    offenders.append(name)
+                text = f.read()
+            if any(p.search(text) for p in private) or (name == "CLAUDE.md" and any(
+                    m.group(1) not in placeholders for pat in patterns for m in pat.finditer(text))):
+                offenders.append(name)
         self.assertEqual(offenders, [])
 
 if __name__ == "__main__":

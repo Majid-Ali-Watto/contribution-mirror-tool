@@ -2,6 +2,8 @@
 import subprocess
 import sys
 
+from .gitutil import child_env
+
 
 def command(title, message, urgent=False, platform=None):
     """The command that shows a notification on this platform, or None if there is no known way."""
@@ -26,6 +28,6 @@ def notify(title, message, urgent=False):
     if not cmd:
         return
     try:
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env())
     except OSError:
         pass

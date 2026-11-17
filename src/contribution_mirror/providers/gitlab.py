@@ -2,6 +2,7 @@
 from datetime import timedelta
 from urllib.parse import quote
 
+from ..logsetup import warn
 from .base import Provider, Token, run_cli
 
 
@@ -36,10 +37,25 @@ class GitLab(Provider):
             return (0, 0)
         return (0, 1)                                # GitLab cannot filter commits by account name: access only
 
+    def project_ids(self, api, repos):
+        """Ids of the listed projects, or None if any of them cannot be looked up (then nothing is filtered: an event
+        is never dropped because of a lookup that failed)."""
+        ids = set()
+        for repo in repos:
+            try:
+                ids.add(api.get(f"/projects/{quote(repo, safe='')}")["id"])
+            except Exception:  # noqa: BLE001 - see docstring
+                warn(f"GitLab: could not look up a listed project, so merge requests are not limited to the listed "
+                     f"projects this run")
+                return None
+        return ids
+
     def fetch(self, api, login, repos, since):
         uid = api.get("/user")["id"]
+        ids = self.project_ids(api, repos) if repos else None   # GitLab events name the project, not its group
         after = (since - timedelta(days=1)).isoformat()     # the events API's `after` is exclusive
         def events(action):
             return [e["created_at"] for e in api.pages(f"/users/{uid}/events", action=action,
-                                                       target_type="merge_request", after=after)]
+                                                       target_type="merge_request", after=after)
+                    if ids is None or e.get("project_id") in ids]
         return events("created"), events("approved")

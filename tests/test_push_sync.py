@@ -3,6 +3,7 @@ import contextlib
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -17,7 +18,8 @@ def git(*args, cwd=None):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True, cwd=cwd, env=_path.GIT_ENV).stdout.strip()
 
 
-class SyncEndToEnd(unittest.TestCase):
+class SyncSetup(unittest.TestCase):
+    """A work repo, a local bare repo as the personal remote, and a config/.env pointing at them."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -48,6 +50,8 @@ class SyncEndToEnd(unittest.TestCase):
     def remote_count(self):
         return int(git("rev-list", "--count", "main", cwd=self.remote))
 
+
+class SyncEndToEnd(SyncSetup):
     def test_dry_run_changes_nothing(self):
         code, out, _ = self.run_sync("--dry-run", self.work)
         self.assertEqual(code, 0)
@@ -138,6 +142,84 @@ class PushFallbacks(unittest.TestCase):
                 mock.patch.object(type(PROVIDERS["github"]), "cli_tokens", lambda self, scope, only_user=None: iter(())), \
                 mock.patch.object(push, "helper_token", lambda h: None):
             self.assertIn("no token found", push._push_with_token(self.CFG))
+
+
+class TheFallbackTokenMustOwnTheMirror(unittest.TestCase):
+    def owns(self, login, source="GH_TOKEN"):
+        from contribution_mirror.providers import PROVIDERS, Token
+        github = PROVIDERS["github"]
+        with mock.patch.object(type(github), "whoami", lambda self, api: login):
+            return push._token_owns(github, "github.com", Token(source, "t"), "me")
+
+    def test_a_work_account_token_is_not_used_to_push(self):
+        self.assertTrue(self.owns("Me"))
+        self.assertFalse(self.owns("me-at-work"))
+        self.assertTrue(self.owns("anyone", source="gh:me"))          # gh CLI token asked for by the owner's name
+
+    def test_errors_never_show_a_token_from_a_url(self):
+        cfg = Config([], "Me", "m@p.com", "https://me:SECRET@github.com/me/mirror.git", "/m")
+        fake = lambda mirror, *a, env=None: (0, "https://x:SECRET@github.com/evil/repo.git", "")
+        with mock.patch.object(push, "_git", fake), self.assertRaises(PushError) as cm:
+            push.ensure_remote(cfg)
+        self.assertNotIn("SECRET", str(cm.exception))
+        self.assertIn("https://***@github.com/evil/repo.git", str(cm.exception))
+
+
+class TwoComputers(SyncSetup):
+    """The same personal repo synced from two computers (two mirror folders): nothing is ever doubled."""
+    def second_computer(self):
+        other = os.path.join(self.tmp.name, "mirror-on-laptop")
+        with open(self.env_file, "a") as f:
+            f.write(f"MIRROR_DIR={other}\n")
+        with open(self.env_file) as f:
+            text = f.read().replace(f"MIRROR_DIR={self.mirror}\n", "")
+        with open(self.env_file, "w") as f:
+            f.write(text)
+        os.environ.pop("MIRROR_DIR", None)          # the first run loaded it; a variable that is set wins over the file
+        return other
+
+    def test_a_second_computer_adds_only_what_is_new(self):
+        self.assertEqual(self.run_sync(self.work)[0], 0)
+        laptop = self.second_computer()
+        code, out, err = self.run_sync(self.work)
+        self.assertEqual(code, 0, err)
+        self.assertIn("started from the remote's history", out)
+        self.assertEqual(int(git("rev-list", "--count", "main", cwd=laptop)), 2)
+        self.assertEqual(self.remote_count(), 2)                       # not 4
+        env = {**_path.GIT_ENV, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "me@work.com", "GIT_AUTHOR_DATE": "2026-06-06T10:00:00+00:00",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "me@work.com", "GIT_COMMITTER_DATE": "2026-06-06T10:00:00+00:00"}
+        subprocess.run(["git", "-C", self.work, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "n"], check=True, env=env)
+        self.assertEqual(self.run_sync(self.work)[0], 0)
+        self.assertEqual(self.remote_count(), 3)
+
+    def test_a_dry_run_does_not_touch_the_remote_tracking_ref(self):
+        self.run_sync(self.work)
+        before = git("rev-parse", "refs/remotes/origin/main", cwd=self.mirror)
+        git("update-ref", "-d", "refs/remotes/origin/main", cwd=self.mirror)
+        self.run_sync("--dry-run", self.work)
+        r = subprocess.run(["git", "-C", self.mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main"],
+                           capture_output=True, text=True, env=_path.GIT_ENV)
+        self.assertEqual((r.returncode, bool(before)), (1, True))
+
+    def test_a_run_while_another_is_in_progress_is_refused_cleanly(self):
+        from contribution_mirror.runlock import run_lock
+        logs = os.path.join(self.tmp.name, "logs")
+        script = ("import sys,time; sys.path.insert(0, sys.argv[1]); from contribution_mirror.runlock import run_lock\n"
+                  "with run_lock(sys.argv[2]):\n    print('locked', flush=True); time.sleep(30)")
+        holder = subprocess.Popen([sys.executable, "-c", script, os.path.join(_path.ROOT, "src"), logs],
+                                  stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "locked")
+        code, _, err = self.run_sync(self.work)
+        self.assertEqual(code, 1)
+        self.assertIn("another run is in progress", err)
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+        self.assertEqual(self.run_sync(self.work)[0], 0)                # released by the OS when the holder died
+        with run_lock(logs), run_lock(logs):                            # re-entrant in one process
+            pass
 
 
 if __name__ == "__main__":

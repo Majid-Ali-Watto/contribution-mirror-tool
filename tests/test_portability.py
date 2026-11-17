@@ -32,10 +32,10 @@ class Windows(unittest.TestCase):
             os.chmod(ro, stat.S_IREAD)
             return None
         before = {n for n in os.listdir(tempfile.gettempdir()) if n.startswith("mirror-scan-")}
-        with mock.patch.object(scan, "run_git", fake_clone), mock.patch.object(scan, "source_dates", return_value=Counter({"d": 1})):
-            counter, err = scan.remote_dates("git@github.com:o/r.git", {"me"}, mock.Mock())
+        with mock.patch.object(scan, "run_git", fake_clone), mock.patch.object(scan, "source_commits", return_value={"h": "d"}):
+            commits, err = scan.remote_dates("git@github.com:o/r.git", {"me"}, mock.Mock())
         after = {n for n in os.listdir(tempfile.gettempdir()) if n.startswith("mirror-scan-")}
-        self.assertEqual((counter, err), (Counter({"d": 1}), None))
+        self.assertEqual((commits, err), ({"h": "d"}, None))
         self.assertEqual(after - before, set())
 
     def test_windows_paths_are_paths_not_urls(self):

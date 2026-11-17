@@ -84,8 +84,8 @@ choose an account explicitly, set one of these in `config/.env` (or the environm
 
 | Host | Explicit (forces the account) | Also read automatically |
 | --- | --- | --- |
-| any | `WORK_TOKEN` | the git credential helper |
-| GitHub | `WORK_GITHUB_TOKEN`, `WORK_GH_USER` (a `gh` account) | `GH_TOKEN`, `GITHUB_TOKEN`, the `gh` CLI |
+| any known host (see below) | `WORK_TOKEN` | the git credential helper |
+| GitHub | `WORK_GITHUB_TOKEN`, `WORK_GH_USER` (a `gh` account) | `GH_TOKEN`, `GITHUB_TOKEN` (github.com only), `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` (GitHub Enterprise), the `gh` CLI |
 | GitLab | `WORK_GITLAB_TOKEN` | `GITLAB_TOKEN`, the `glab` CLI |
 | Bitbucket Cloud | `WORK_BITBUCKET_TOKEN` (`username:app_password`, or a repository/workspace access token) | `BITBUCKET_TOKEN` |
 | Azure DevOps | `WORK_AZURE_DEVOPS_TOKEN` (a PAT) | `AZURE_DEVOPS_EXT_PAT`, the `az` CLI (Azure AD token) |
@@ -94,10 +94,17 @@ choose an account explicitly, set one of these in `config/.env` (or the environm
 A token only needs read access: pull requests / merge requests and repository metadata. If your organisation uses SSO,
 authorize the token for it.
 
+Tokens that are not tied to one host (`WORK_TOKEN`, `WORK_<HOST>_TOKEN` and the variables in the last column) are
+only sent to a **known** host: a public one, or a server you named in `GIT_HOST_PROVIDERS` or gave a `WORK_<HOST>_API_URL`.
+A server that was only recognised by probing it gets nothing but what is tied to it anyway: the vendor CLI's login for
+that host and your git credential helper's entry for it. So a repo URL on an unfamiliar server cannot collect your
+work token by claiming to be GitLab.
+
 ## Self-hosted servers
 
 The host is recognised by name for the public ones. For a self-hosted server the tool asks it what it is (a quick
-request to its public version endpoint). If that is blocked or wrong, say what it is:
+request to its public version endpoint; a definite answer is remembered in `logs/api-state.json`). If that is blocked
+or wrong, or you want tokens from `config/.env` used there, say what it is:
 
 ```
 GIT_HOST_PROVIDERS=git.corp.com=gitlab,code.corp.com=gitea,github.corp.com=github

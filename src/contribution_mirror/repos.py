@@ -2,19 +2,43 @@
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from .gitutil import origin_url
 from .logsetup import log, warn
 from .remotes import is_url, repo_key, repo_path, scope_of
 from .settings import SIBLINGS
 
+
+class ReposFileError(ValueError):
+    """config/repos.json cannot be used (bad JSON, or not {"repos": [...]})."""
+
+
+def origin_urls(repos):
+    """{repo: its origin URL ('' if none)}, looked up in parallel (one git process each)."""
+    if not repos:
+        return {}
+    with ThreadPoolExecutor(min(8, len(repos))) as ex:
+        return dict(zip(repos, ex.map(origin_url, repos)))
+
+
 def load_repos_file(path):
     """Projects from a JSON file: {"repos": [...]}. Each entry is a local clone path OR a git URL (ssh or https;
-    "remote_repos" is still accepted for URLs). No directory walking.
+    the older "remote_repos" list of URLs is still accepted, with a note). No directory walking.
     Returns (local repo paths, URLs to scan from a temporary clone)."""
-    with open(path) as f:
-        cfg = json.load(f)
-    listed = cfg["repos"]
+    try:
+        with open(path, encoding="utf-8-sig") as f:              # -sig: a BOM from Windows editors is fine too
+            cfg = json.load(f)
+    except ValueError as e:
+        raise ReposFileError(f"{path} is not valid JSON: {e}") from None
+    listed = cfg.get("repos") if isinstance(cfg, dict) else None
+    extra = cfg.get("remote_repos", []) if isinstance(cfg, dict) else []
+    if not isinstance(listed, list) or not isinstance(extra, list) \
+            or not all(isinstance(x, str) for x in listed + extra):
+        raise ReposFileError(f'{path} must look like {{"repos": ["/path/to/clone", "git@host:org/repo.git"]}}')
+    if extra:
+        print(f'note: {path} uses the older "remote_repos" key. It still works; URLs can simply go in "repos" '
+              'together with paths (see config/repos.example.json).')
     repos, urls = [], []
     for r in listed:
         if is_url(r):
@@ -25,7 +49,7 @@ def load_repos_file(path):
             warn(f"skipping '{r}' (not a git repo)")
         elif r not in repos:
             repos.append(r)
-    return repos, list(dict.fromkeys(urls + [u.strip() for u in cfg.get("remote_repos", [])]))
+    return repos, list(dict.fromkeys(urls + [u.strip() for u in extra]))
 
 def find_repos(roots):
     for root in roots:
@@ -53,16 +77,17 @@ def select_sources(src, repos_file, mirror):
         sys.exit("mirror must not be inside a source repo")
     repos = [r for r in repos if r != mirror]
     if remotes:  # a URL that is already cloned locally and listed would be counted twice
-        local_keys = {repo_key(origin_url(r)) for r in repos}
+        local_keys = {repo_key(u) for u in origin_urls(repos).values()}
         remotes = [u for u in remotes if repo_key(u) not in local_keys]
     return repos, remotes
 
 
-def group_by_scope(repos, remotes):
+def group_by_scope(repos, remotes, origins=None):
     """{scope: [owner/repo, ...]} of everything listed (scope = host, or host/organisation on Azure DevOps).
-    Used to pick the account that has your commits on each host."""
+    Used to pick the account that has your commits on each host. `origins` = origin_urls(repos), if known."""
     by_scope = {}
-    for u in [origin_url(r) for r in repos] + remotes:
+    origins = origin_urls(repos) if origins is None else origins
+    for u in [origins.get(r, "") for r in repos] + remotes:
         if u and is_url(u):
             by_scope.setdefault(scope_of(u), []).append(repo_path(u))
     return {s: list(dict.fromkeys(v)) for s, v in by_scope.items()}

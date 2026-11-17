@@ -1,16 +1,33 @@
 # Scheduling (automatic runs)
 
-Run the sync automatically at login and once a day, with whatever scheduler your system has. One command installs it:
+Run the sync automatically at login, once a day, or both, with whatever scheduler your system has. Set it up on the
+**Schedule** tab of the setup page ([GUI](gui.md)), with `make`, or with one command:
 
 ```bash
 python3 -I src/mirror.py schedule install --dry-run    # show exactly what would be written and run
-python3 -I src/mirror.py schedule install              # install
-python3 -I src/mirror.py schedule status
-python3 -I src/mirror.py schedule uninstall
+python3 -I src/mirror.py schedule install              # at login and daily at 18:00
+python3 -I src/mirror.py schedule install --time 14:00 # change the daily time (the login run stays as it is)
+python3 -I src/mirror.py schedule install --no-daily   # at login only
+python3 -I src/mirror.py schedule install --no-login   # daily only
+python3 -I src/mirror.py schedule status               # what is set up now, read from the scheduler itself
+python3 -I src/mirror.py schedule uninstall            # stop all automatic runs
 ```
 
-(Windows: `py -3 -I src\mirror.py schedule ...`.) Options: `--time HH:MM` (daily run, local time, default 18:00) and, on
-Linux, `--timezone Europe/London`.
+(Windows: `py -3 -I src\mirror.py schedule ...`. With make: `make schedule TIME=14:00`, `make schedule-login`,
+`make schedule-daily TIME=09:30`, `make schedule-off`, `make schedule-status`.) On Linux, `--timezone Europe/London` sets
+the zone of the daily time.
+
+**The page, the command and `make` always agree**, because there is no separate record of what is set up: the scheduler
+itself is read back (the timer file on Linux, the agents on macOS, the tasks on Windows). Running `install` again with
+other options changes only what differs:
+
+- Turning a run **off** removes it from the scheduler (both off = `uninstall`: nothing is left behind).
+- Changing the **time** updates the daily run only; the login run is not reloaded, so on macOS it does not fire
+  straight away. On Linux the timer is restarted to pick up the new time; if the new time already passed today and
+  today's run has not happened yet, systemd runs it once right away (`Persistent=true`), which is harmless.
+- **Settings and projects are not part of the schedule.** Every scheduled run reads `config/.env` and
+  `config/repos.json` when it starts (the same files the setup page saves), so a change there applies to the next run
+  without reinstalling anything.
 
 | System | Scheduler | What is created |
 | --- | --- | --- |
@@ -19,7 +36,8 @@ Linux, `--timezone Europe/London`.
 | Windows | Task Scheduler | tasks `contribution-mirror-login` (at logon, 5 minute delay) and `contribution-mirror-daily` |
 
 More per-system detail: [platforms](platforms.md). Use `--dry-run` to see the exact files and commands before installing.
-If you move this folder, run `schedule install` again so the scheduler points at the new place.
+If you move this folder, or switch to another Python, run `schedule install` again so the scheduler points at the new
+place. A timer written by hand (as long as it keeps the `contribution-mirror` names) is read and replaced the same way.
 
 ## What a scheduled run does
 
@@ -35,7 +53,7 @@ Warnings (a fetch that failed, a PR/review lookup that was skipped) do not fail 
 
 ## Credentials for unattended runs
 
-Git never prompts, so the run needs credentials that work without typing: an ssh key without a passphrase or a running agent, or an https credential helper. If `PERSONAL_SSH_KEY` is set in `config/.env`, the push (and only the push) uses that key. If your credentials live in the system keyring, the scheduled run only works while you are logged in, which is when the keyring is unlocked; check `logs/mirror.log` for a `WARNING` after your first reboot. More in [authentication](authentication.md).
+Git never prompts, so the run needs credentials that work without typing: an ssh key without a passphrase or a running agent, or an https credential helper. If a run starts while another one is still going (a manual `sync`, or the login and daily runs together), it stops straight away and says so; that is not reported as a failure. If `PERSONAL_SSH_KEY` is set in `config/.env`, the push (and only the push) uses that key. If your credentials live in the system keyring, the scheduled run only works while you are logged in, which is when the keyring is unlocked; check `logs/mirror.log` for a `WARNING` after your first reboot. More in [authentication](authentication.md).
 
 ## systemd by hand (Linux)
 

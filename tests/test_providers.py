@@ -195,5 +195,107 @@ class AgainstAFakeHost(unittest.TestCase):
                 PROVIDERS["github"].whoami(self.api(h, PROVIDERS["github"]))
 
 
+class OnlyTheListedWork(AgainstAFakeHost):
+    """PRs and reviews outside the owners (or GitLab projects) of the listed repos are not mirrored."""
+
+    def test_github_keeps_only_the_listed_owners(self):
+        p = PROVIDERS["github"]
+        with FakeHost() as h:
+            def search(q):
+                if q["q"].startswith("author:me"):
+                    return 200, {"total_count": 2, "items": [
+                        {"created_at": "2026-02-01T00:00:00Z", "repository_url": f"{h.url}/repos/Acme/web"},
+                        {"created_at": "2026-02-02T00:00:00Z", "repository_url": f"{h.url}/repos/me/side-project"}]}
+                return 200, {"total_count": 2, "items": [{"number": 1, "repository_url": f"{h.url}/repos/acme/api"},
+                                                         {"number": 2, "repository_url": f"{h.url}/repos/oss/lib"}]}
+            h.routes["/search/issues"] = search
+            h.routes["/repos/acme/api/pulls/1/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": "2026-03-03T00:00:00Z"}])
+            h.routes["/repos/oss/lib/pulls/2/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": "2026-03-04T00:00:00Z"}])
+            got = p.fetch(self.api(h, p), "me", ["acme/web"], SINCE)
+            self.assertEqual(got, (["2026-02-01T00:00:00Z"], ["2026-03-03T00:00:00Z"]))
+            self.assertFalse(any("oss/lib" in r["path"] for r in h.requests))       # not even looked up
+
+    def test_gitea_reviews_use_the_update_time_and_listed_owners(self):
+        p = PROVIDERS["gitea"]
+        with FakeHost() as h:
+            def search(q):
+                if q.get("created_by") == "me":
+                    return 200, [{"created_at": "2026-02-01T00:00:00Z", "repository": {"full_name": "acme/a"}},
+                                 {"created_at": "2026-02-02T00:00:00Z", "repository": {"full_name": "other/b"}}]
+                return 200, [{"number": 5, "user": {"login": "x"}, "repository": {"full_name": "acme/a"}}]
+            h.routes["/repos/issues/search"] = search
+            h.routes["/repos/acme/a/pulls/5/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": "2026-03-03T00:00:00Z",
+                                                                 "state": "APPROVED"}])
+            prs, reviews = p.fetch(self.api(h, p), "me", ["acme/x"], SINCE)
+            self.assertEqual((prs, reviews), (["2026-02-01T00:00:00Z"], ["2026-03-03T00:00:00Z"]))
+            review_search = [r for r in h.requests if r["query"].get("reviewed") == "true"][0]["query"]
+            # a PR opened before the window but reviewed inside it must be found: filter on update time, not creation
+            self.assertEqual(review_search.get("since"), "2026-01-01T00:00:00Z")
+            self.assertNotIn("created_after", review_search)
+
+    def test_bitbucket_keeps_only_the_listed_workspaces(self):
+        p = PROVIDERS["bitbucket"]
+        with FakeHost() as h:
+            h.routes["/2.0/user"] = (200, {"nickname": "me", "uuid": "{abc}"})
+            h.routes["/2.0/pullrequests/%7Babc%7D"] = (200, {"values": [
+                {"created_on": "2026-05-01T00:00:00+00:00", "destination": {"repository": {"full_name": "acme/app"}}},
+                {"created_on": "2026-04-01T00:00:00+00:00", "destination": {"repository": {"full_name": "me/hobby"}}}]})
+            self.assertEqual(p.fetch(self.api(h, p), "me", ["Acme/mobile"], SINCE), (["2026-05-01T00:00:00+00:00"], []))
+
+    def test_gitlab_keeps_only_the_listed_projects_and_never_drops_on_a_failed_lookup(self):
+        p = PROVIDERS["gitlab"]
+        with FakeHost() as h:
+            h.routes["/user"] = (200, {"id": 7, "username": "me"})
+            h.routes["/projects/g%2Fp"] = (200, {"id": 11})
+            h.routes["/users/7/events"] = lambda q: (200, [{"created_at": "2026-03-01T10:00:00Z", "project_id": 11},
+                                                            {"created_at": "2026-03-02T10:00:00Z", "project_id": 99}]
+                                                     if q["action"] == "created" else [])
+            self.assertEqual(len(p.fetch(self.api(h, p), "me", ["g/p"], SINCE)[0]), 1)
+            with mock.patch("sys.stderr"):
+                self.assertEqual(len(p.fetch(self.api(h, p), "me", ["g/p", "g/unknown"], SINCE)[0]), 2)
+
+    def test_azure_asks_the_server_for_the_window_only(self):
+        p = PROVIDERS["azure"]
+        with FakeHost() as h:
+            h.routes["/_apis/connectionData"] = (200, {"authenticatedUser": {"id": "g1", "providerDisplayName": "Me"}})
+            h.routes["/P/_apis/git/repositories/web/pullrequests"] = (200, {"value": []})
+            p.fetch(self.api(h, p, "PAT"), "Me", ["acme/P/web"], SINCE)
+            q = h.requests[-1]["query"]
+            self.assertEqual((q["searchCriteria.minTime"], q["searchCriteria.queryTimeRangeType"]),
+                             ("2026-01-01T00:00:00Z", "created"))
+
+
+class ProbeMemory(unittest.TestCase):
+    def setUp(self):
+        for d in (providers._cache, providers._learned, providers._probed):
+            d.clear()
+            self.addCleanup(d.clear)
+
+    def test_a_definite_answer_is_remembered_for_the_next_run(self):
+        with mock.patch.object(providers, "probe", return_value="gitea"):
+            providers.provider_for("code.corp.example")
+        self.assertEqual(providers.probed(), {"code.corp.example": "gitea"})
+        providers._cache.clear()
+        providers._learned.clear()
+        providers.remember({"code.corp.example": "gitea"})                   # what the next run loads
+        with mock.patch.object(providers, "probe") as probe:
+            self.assertEqual(providers.provider_for("code.corp.example").name, "gitea")
+            probe.assert_not_called()
+
+    def test_offline_is_not_remembered(self):
+        with mock.patch.object(providers, "probe", return_value=None):
+            self.assertEqual(providers.provider_for("code.corp.example").name, "generic")
+        self.assertEqual(providers.probed(), {})
+
+    def test_only_hosts_named_by_a_person_are_trusted_with_tokens(self):
+        with mock.patch.object(providers, "probe", return_value="gitlab"), \
+                mock.patch.dict(os.environ, {"GIT_HOST_PROVIDERS": "git.corp.example=gitlab", "WORK_GITLAB_API_URL": ""}):
+            self.assertTrue(providers.trusted("gitlab.com"))
+            self.assertTrue(providers.trusted("git.corp.example"))
+            self.assertFalse(providers.trusted("claims-to-be-gitlab.example"))
+            os.environ["WORK_GITLAB_API_URL"] = "https://claims-to-be-gitlab.example/api/v4"
+            self.assertTrue(providers.trusted("claims-to-be-gitlab.example"))   # the user chose that API address
+
+
 if __name__ == "__main__":
     unittest.main()

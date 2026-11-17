@@ -1,6 +1,6 @@
 """Gitea, Forgejo and Codeberg. Pull requests you opened and the reviews you submitted."""
 from ..timeutil import parse_iso
-from .base import Provider
+from .base import Provider, listed_owners, owned_by
 
 
 class Gitea(Provider):
@@ -30,12 +30,15 @@ class Gitea(Provider):
 
     def fetch(self, api, login, repos, since):
         after = f"{since.isoformat()}T00:00:00Z"
+        owners = listed_owners(repos)
+        repo_of = lambda i: (i.get("repository") or {}).get("full_name", "")
         search = lambda **extra: api.pages("/repos/issues/search", size_param="limit", size=50,
-                                           type="pulls", state="all", created_after=after, **extra)
-        prs = [i["created_at"] for i in search(created_by=login)]
+                                           type="pulls", state="all", **extra)
+        prs = [i["created_at"] for i in search(created_by=login, created_after=after) if owned_by(repo_of(i), owners)]
         reviews = []
-        for pr in search(reviewed="true"):               # pull requests reviewed by the authenticated user
-            if (pr.get("user") or {}).get("login") == login:
+        # `since` = updated since: a review updates its pull request, which may have been opened long before
+        for pr in search(reviewed="true", since=after):   # pull requests reviewed by the authenticated user
+            if (pr.get("user") or {}).get("login") == login or not owned_by(repo_of(pr), owners):
                 continue
             repo = pr["repository"]["full_name"]
             for r in api.get(f"/repos/{repo}/pulls/{pr['number']}/reviews") or []:

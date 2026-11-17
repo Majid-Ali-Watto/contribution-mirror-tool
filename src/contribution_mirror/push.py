@@ -1,12 +1,17 @@
 """Pushing the mirror to your personal repo: safety check, first-run remote, nothing-to-push shortcut, optional
-ssh key, and an https + token fallback when your normal git setup cannot push."""
-import os
+ssh key, and an https + token fallback when your normal git setup cannot push. Also fetching the personal repo
+first, so a second computer never duplicates what is already there."""
 import subprocess
 
-from .credentials import helper_token
+from .credentials import env_tokens, helper_token
 from .gitutil import run_git, token_env, work_env
-from .providers import Token, host_of, provider_for
+from .httpapi import Api
+from .logsetup import redact
+from .providers import host_of, provider_for
 from .remotes import https_url, real_host, repo_key, repo_path
+
+# Hosts where a personal repo's owner is the account's login, so a token can be checked against it before use.
+OWNER_IS_LOGIN = ("github", "gitlab", "gitea")
 
 
 class PushError(RuntimeError):
@@ -40,38 +45,86 @@ def _push_env(ssh_key):
     return env
 
 
-def _push_with_token(cfg):
-    """Last resort: https push with a token of the account that owns the mirror repo (gh CLI account named like
-    the owner, a conventional env var, or the git credential helper). Returns an error string or None."""
+def _token_owns(provider, host, tok, owner):
+    """True if `tok` belongs to the account that owns the mirror (checked on hosts where a personal repo's owner is
+    the login), so the fallback never pushes with a work account that merely has access. A gh CLI token asked for by
+    the owner's name is that account already."""
+    if provider.name not in OWNER_IS_LOGIN or tok.source.lower() == f"gh:{owner}".lower():
+        return True
+    try:
+        login = provider.whoami(Api(provider.api_url(host), provider.headers(tok)))
+    except Exception:  # noqa: BLE001 - an invalid token is simply not used
+        return False
+    return login.lower() == owner.lower()
+
+
+def _mirror_tokens(cfg):
+    """(provider, host, owner, tokens) for the personal repo: the gh CLI account named like the owner, conventional
+    variables (only for a host whose kind is known), the git credential helper for that host."""
     host = real_host(cfg.expected_remote)
     provider = provider_for(host)
     owner = repo_path(cfg.expected_remote).split("/")[0]
-    tokens = list(provider.cli_tokens(host, owner))
-    tokens += [Token(v, os.environ[v]) for v in provider.env_vars if os.environ.get(v, "").strip()]
+    tokens = list(provider.cli_tokens(host, owner)) + env_tokens(provider, host)
     helper = helper_token(host)
     tokens += [helper] if helper else []
+    return provider, host, owner, tokens
+
+
+def _with_token(cfg, args, timeout):
+    """Run git `args` (inside the mirror) over https with a token of the account that owns the mirror repo. Returns
+    an error string or None."""
+    provider, host, owner, tokens = _mirror_tokens(cfg)
     last = "no token found (log in with the host's CLI, or set up ssh or an https credential helper)"
     for tok in tokens:
+        if not _token_owns(provider, host, tok, owner):
+            last = f"the token from {tok.source} is not the account that owns '{owner}', not used"
+            continue
         env = token_env(provider.git_header(tok), host_of(host))
-        last = run_git(["-C", cfg.mirror_dir, "push", https_url(cfg.expected_remote), "main:main"], env, 300)
+        last = run_git(["-C", cfg.mirror_dir, *args], env, timeout)
         if last is None:
-            _git(cfg.mirror_dir, "update-ref", "refs/remotes/origin/main", "main")
             return None
     return last
 
 
-def push_mirror(cfg):
-    """Push `main` of the mirror. Returns 'pushed' or 'nothing to push'; raises PushError otherwise.
-    Refuses to push anywhere but the configured personal repo (compared as owner/repo, so ssh, https, tokens in
-    the URL and ssh host aliases are all the same repo)."""
+def _push_with_token(cfg):
+    """Last resort: https push with a token of the account that owns the mirror repo. Returns an error or None."""
+    err = _with_token(cfg, ["push", https_url(cfg.expected_remote), "main:main"], 300)
+    if err is None:
+        _git(cfg.mirror_dir, "update-ref", "refs/remotes/origin/main", "main")
+    return err
+
+
+def ensure_remote(cfg):
+    """Connect the mirror to your personal repo on the first run, and refuse any other repo (compared as owner/repo,
+    so ssh, https, tokens in the URL and ssh host aliases are all the same repo)."""
     mirror = cfg.mirror_dir
     if _git(mirror, "remote", "get-url", "origin")[0] != 0:          # first run: connect the mirror to your repo
         code, _, err = _git(mirror, "remote", "add", "origin", cfg.expected_remote)
         if code != 0:
-            raise PushError(f"cannot set the mirror's remote: {err}")
+            raise PushError(f"cannot set the mirror's remote: {redact(err)}")
     remote = _git(mirror, "remote", "get-url", "origin")[1]
     if repo_key(remote) != repo_key(cfg.expected_remote):
-        raise PushError(f"refusing to push: origin is '{remote}', expected '{cfg.expected_remote}'")
+        raise PushError(f"refusing to push: origin is '{redact(remote)}', expected '{redact(cfg.expected_remote)}'")
+
+
+def fetch_mirror(cfg):
+    """Fetch `main` of your personal repo into refs/remotes/origin/main. Returns None on success (also when the repo
+    is still empty) or an error string; the caller carries on (the push will tell if something is really wrong)."""
+    refspec = "+refs/heads/main:refs/remotes/origin/main"
+    code, _, err = _git(cfg.mirror_dir, "fetch", "--quiet", "origin", refspec, env=_push_env(cfg.ssh_key))
+    if code == 0 or "couldn't find remote ref" in err:
+        return None
+    fallback = _with_token(cfg, ["fetch", "--quiet", https_url(cfg.expected_remote), refspec], 300)
+    if fallback is None or "couldn't find remote ref" in fallback:
+        return None
+    return redact(f"{err.splitlines()[-1] if err else 'unknown error'} | https fallback: {fallback}")
+
+
+def push_mirror(cfg):
+    """Push `main` of the mirror. Returns 'pushed' or 'nothing to push'; raises PushError otherwise.
+    Refuses to push anywhere but the configured personal repo."""
+    mirror = cfg.mirror_dir
+    ensure_remote(cfg)
     local = _git(mirror, "rev-parse", "main")[1]
     tracked = _git(mirror, "rev-parse", "-q", "--verify", "refs/remotes/origin/main")[1]
     if local and local == tracked:
@@ -82,5 +135,5 @@ def push_mirror(cfg):
     fallback = _push_with_token(cfg)
     if fallback is None:
         return "pushed"
-    raise PushError(f"push failed: {err.splitlines()[-1] if err else 'unknown error'} | "
-                    f"https fallback: {fallback}")
+    raise PushError(redact(f"push failed: {err.splitlines()[-1] if err else 'unknown error'} | "
+                           f"https fallback: {fallback}"))

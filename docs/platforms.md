@@ -35,8 +35,9 @@ python3 -I src/mirror.py schedule status
 python3 -I src/mirror.py schedule uninstall
 ```
 
-(Windows: `py -3 -I src\mirror.py schedule install`.) Options: `--time HH:MM` for the daily run, and on Linux
-`--timezone Europe/London`.
+(Windows: `py -3 -I src\mirror.py schedule install`.) Options: `--time HH:MM` for the daily run, `--no-login` /
+`--no-daily` to have only one of the two, and on Linux `--timezone Europe/London`. The Schedule tab of the setup page
+does the same ([GUI](gui.md)). Details in [scheduling](scheduling.md).
 
 | System | What is created |
 | --- | --- |

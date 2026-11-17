@@ -6,7 +6,7 @@ import math
 
 from ..logsetup import warn
 from ..settings import API_WORKERS, SEARCH_CAP
-from .base import Provider, Token, run_cli
+from .base import Provider, Token, listed_owners, owned_by, run_cli
 
 
 def search_items(api, base_q, field, a, b):
@@ -46,6 +46,7 @@ class GitHub(Provider):
     reviews = True
     work_envs = ("WORK_GITHUB_TOKEN",)
     env_vars = ("GH_TOKEN", "GITHUB_TOKEN")
+    enterprise_env_vars = ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
     api_url_env = "WORK_GITHUB_API_URL"
     git_user = "x-access-token"
 
@@ -55,6 +56,10 @@ class GitHub(Provider):
     def headers(self, tok):
         return {"Authorization": f"Bearer {tok.secret}", "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28"}
+
+    def env_token_vars(self, scope):
+        """GH_TOKEN / GITHUB_TOKEN are github.com tokens (as for the gh CLI); a GitHub Enterprise server has its own."""
+        return self.env_vars if scope == "github.com" else self.enterprise_env_vars
 
     def cli_tokens(self, scope, only_user=None):
         """Every account logged in to the gh CLI for this host (or just `only_user`)."""
@@ -83,8 +88,10 @@ class GitHub(Provider):
             f_prs = ex.submit(search_items, api, f"author:{login} type:pr", "created", since, end)
             f_rev = ex.submit(search_items, api, f"reviewed-by:{login} type:pr -author:{login}", "updated", since, end)
             prs, reviewed = f_prs.result(), f_rev.result()
-        pr_times = [i["created_at"] for i in prs]
-        jobs = [(i["repository_url"].split("/repos/", 1)[1], i["number"]) for i in reviewed]
+        owners = listed_owners(repos)
+        repo_of = lambda i: (i.get("repository_url") or "").split("/repos/", 1)[-1] if i.get("repository_url") else ""
+        pr_times = [i["created_at"] for i in prs if owned_by(repo_of(i), owners)]
+        jobs = [(repo_of(i), i["number"]) for i in reviewed if owned_by(repo_of(i), owners)]
         del prs, reviewed
         with ThreadPoolExecutor(API_WORKERS) as ex:
             review_times = [t for ts in ex.map(lambda j: pr_reviews(api, j[0], j[1], login, since), jobs) for t in ts]

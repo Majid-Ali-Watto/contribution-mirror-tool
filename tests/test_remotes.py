@@ -33,6 +33,18 @@ class RemoteUrls(unittest.TestCase):
         remotes._hosts.clear()
 
 
+class NoSshForHttps(unittest.TestCase):
+    def test_https_urls_never_run_ssh_and_aliases_cannot_be_options(self):
+        remotes._hosts.clear()
+        self.addCleanup(remotes._hosts.clear)
+        with mock.patch.object(remotes.subprocess, "run") as run:
+            self.assertEqual(remotes.real_host("https://git.corp.example/o/r.git"), "git.corp.example")
+            run.assert_not_called()
+        with mock.patch.object(remotes.subprocess, "run", return_value=mock.Mock(stdout="hostname gitlab.com\n")) as run:
+            remotes.real_host("git@my-alias:o/r.git")
+        self.assertEqual(run.call_args[0][0], ["ssh", "-G", "--", "my-alias"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

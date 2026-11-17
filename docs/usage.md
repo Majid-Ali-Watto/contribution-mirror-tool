@@ -1,5 +1,9 @@
 # Usage
 
+Prefer a page in your browser? `python3 -I src/mirror.py ui` opens the setup and sync page: see [GUI](gui.md).
+On Linux and macOS, `make help` lists short forms of every common command (`make ui`, `make preview`, `make sync`,
+`make schedule TIME=14:00`, `make test`, ...).
+
 ## `sync`: the command you run
 
 ```bash
@@ -24,7 +28,9 @@ scripts/sync.sh --dry-run my-repo     # preview for one folder
 | --- | --- |
 | `mirror.py sync [--dry-run] [folder ...]` | mirror and push (above) |
 | `mirror.py scheduled [--startup-delay SECONDS]` | what an OS scheduler runs: wait for the network, sync, notify ([scheduling](scheduling.md)) |
-| `mirror.py schedule install\|uninstall\|status [--dry-run]` | set up automatic runs for this OS ([scheduling](scheduling.md)) |
+| `mirror.py schedule install\|uninstall\|status [--time HH:MM] [--no-login] [--no-daily] [--dry-run]` | set up, change or stop automatic runs for this OS ([scheduling](scheduling.md)) |
+| `mirror.py accounts [--recheck] [--json]` | which login each host would use for pull requests and reviews ([authentication](authentication.md)) |
+| `mirror.py ui [--port N] [--no-browser]` | the setup and sync page in your browser ([GUI](gui.md)) |
 | `mirror.py <options>` | the core, below (no command word) |
 
 ## The core: `src/mirror.py <options>`
@@ -52,7 +58,9 @@ python3 -I src/mirror.py \
 | `--no-api` | Optional. Commits only: do not mirror PRs and reviews. |
 | `--full-api` | Optional. Re-scan the whole 365-day PR/review window instead of only the recent days ([performance](performance.md)). |
 | `--no-fetch` | Optional. Skip `git fetch` of the work repos and the temporary clones of URL entries (offline / fastest). |
-| `--log-dir` | Optional. Folder for `mirror.log` and `api-state.json` (default `logs/` in the project folder). |
+| `--log-dir` | Optional. Folder for `mirror.log`, `api-state.json` and `mirror.lock` (default `logs/` in the project folder). |
+| `--dates-out` | Optional. Also write the dates per day (already mirrored, and new) to this JSON file; the setup page uses it for its calendar. `sync` takes it too. |
+| `--clone-cache` | Optional. Keep the clones of URL entries in this folder and only fetch new commits on later runs (`MIRROR_CLONE_CACHE` for `sync`). |
 
 `-I` (Python's isolated mode) is used so a stray file in the current directory can never shadow the code; `src/mirror.py` adds only its own folder to the import path.
 

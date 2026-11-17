@@ -1,18 +1,21 @@
 """Command line: parse arguments and run the steps in order (scan -> PRs/reviews -> compare -> write)."""
 import argparse
+import json
 import os
 import sys
 from collections import Counter
 
+from . import providers
 from .activity import fetch_activity
 from .credentials import Creds, explicit_choice
-from .logsetup import close_log, say, setup_log
+from .logsetup import close_log, redact, say, setup_log
 from .mirror_repo import ensure_repo, existing_dates, write_commits
 from .report import RunResult, attribute, print_totals, summary
-from .repos import group_by_scope, select_sources
+from .repos import ReposFileError, group_by_scope, origin_urls, select_sources
+from .runlock import RunLocked, run_lock
 from .scan import scan_all
 from .settings import LOG_DIR, REPOS_FILE
-from .state import save_state
+from .state import known_hosts, load_state, preferred_accounts, save_state
 
 
 def build_parser():
@@ -37,6 +40,11 @@ def build_parser():
     p.add_argument("--no-fetch", action="store_true",
                    help="do not `git fetch` the work repos and do not scan URL entries (offline / fastest)")
     p.add_argument("--apply", action="store_true", help="actually create commits (default is a dry run)")
+    p.add_argument("--dates-out", default="",
+                   help="also write the dates per day (already mirrored, and new) to this JSON file, for a calendar view")
+    p.add_argument("--clone-cache", default="",
+                   help="keep the clones of URL entries in this folder and only fetch new commits on later runs "
+                        "(default: temporary clones, deleted after each run)")
     p.add_argument("--log-dir", default=LOG_DIR,
                    help="folder for mirror.log (rotates at 5 MB, keeps 10 old files) and api-state.json; "
                         "default: logs/ in the project folder")
@@ -46,11 +54,12 @@ def build_parser():
 def run(argv=None):
     """The core run: scan, compare, and (with --apply) write. Returns a RunResult."""
     a = build_parser().parse_args(argv)
-    setup_log(a.log_dir)
-    try:
-        return _run(a)
-    finally:
-        close_log()                      # Windows cannot delete a log file that is still open
+    with run_lock(a.log_dir):
+        setup_log(a.log_dir)
+        try:
+            return _run(a)
+        finally:
+            close_log()                  # Windows cannot delete a log file that is still open
 
 
 def _run(a):
@@ -58,20 +67,23 @@ def _run(a):
     emails = {e.lower() for e in a.work_email}
 
     # 1. what to scan, and who we are on GitHub
+    st = load_state(a.log_dir)
+    providers.remember(known_hosts(st))
     repos, remotes = select_sources(a.src, a.repos_file, mirror)
-    repos_by_scope = group_by_scope(repos, remotes)
-    creds = Creds(repos_by_scope, a.gh_user)
+    repos_by_scope = group_by_scope(repos, remotes, origin_urls(repos))
+    # the account chosen last time is reused if it still works, unless a full re-scan was asked for
+    creds = Creds(repos_by_scope, a.gh_user, None if a.full_api else preferred_accounts(st))
     if a.no_fetch:
         remotes = []
     n_sources = len(repos) + len(remotes)
 
     # 2. commit dates from the work repos, the mirror's current content, then PRs and reviews
-    per_repo = scan_all(repos, remotes, emails, creds, a.no_fetch)
+    per_repo = scan_all(repos, remotes, emails, creds, a.no_fetch, a.clone_cache or None)
     existing = existing_dates(mirror)
-    who, started = None, None
+    done, started = {}, None
     if not a.no_api:
-        items, who, started = fetch_activity(creds, repos_by_scope, a.log_dir, bool(existing), a.full_api,
-                                             explicit_choice(a.gh_user))
+        items, done, started = fetch_activity(creds, repos_by_scope, st, bool(existing), a.full_api,
+                                              explicit_choice(a.gh_user))
         per_repo += items
 
     # 3. what is new
@@ -81,6 +93,8 @@ def _run(a):
     todo = wanted - existing
     by_repo = attribute(per_repo, existing)
     print_totals(n_sources, wanted, existing, todo)
+    if a.dates_out:
+        write_days(a.dates_out, existing, todo)
 
     if not a.apply:
         summary(False, n_sources, wanted, existing, todo, by_repo, "would_create")
@@ -91,12 +105,25 @@ def _run(a):
     ensure_repo(mirror)
     if todo:
         write_commits(mirror, list(todo.elements()), a.name, a.email)
-    if who:  # only after the commits are safely written
-        save_state(a.log_dir, who, started)
+    if done or providers.probed():  # only after the commits are safely written
+        save_state(a.log_dir, done, started, providers.probed())
     say(f"created {sum(todo.values())} commits in {mirror}")
     summary(True, n_sources, wanted, existing, todo, by_repo, "created")
     print("Review with `git log`, then add YOUR PERSONAL remote and push yourself.")
     return RunResult(sum(todo.values()), by_repo, dry_run=False)
+
+
+def write_days(path, existing, todo):
+    """{"existing": {day: n}, "new": {day: n}}: the mirror's dates and the ones a run adds, per calendar day (the day
+    in each timestamp's own time zone). Dates only, the same information the mirror itself holds."""
+    def per_day(counter):
+        days = Counter()
+        for iso, n in counter.items():
+            days[iso[:10]] += n
+        return dict(sorted(days.items()))
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"existing": per_day(existing), "new": per_day(todo)}, f)
 
 
 def _console_safe():
@@ -107,7 +134,7 @@ def _console_safe():
 
 
 def main(argv=None):
-    """Dispatch: `sync`, `scheduled`, `schedule`, or (no command) the core run. Returns the exit code."""
+    """Dispatch: `sync`, `scheduled`, `schedule`, `accounts`, `ui`, or (no command) the core run."""
     argv = list(sys.argv[1:] if argv is None else argv)
     _console_safe()
     command, rest = (argv[0], argv[1:]) if argv else (None, [])
@@ -120,5 +147,15 @@ def main(argv=None):
     if command == "schedule":
         from . import schedule
         return schedule.main(rest)
-    run(argv)
+    if command == "accounts":
+        from . import accounts
+        return accounts.main(rest)
+    if command == "ui":
+        from . import ui
+        return ui.main(rest)
+    try:
+        run(argv)
+    except (ReposFileError, RunLocked, RuntimeError) as e:
+        print(redact(e), file=sys.stderr)
+        return 1
     return 0

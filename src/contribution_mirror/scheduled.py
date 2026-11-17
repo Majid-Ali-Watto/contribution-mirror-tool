@@ -9,9 +9,10 @@ import time
 from . import sync
 from .config import load_config
 from .envfile import EnvFileError
-from .logsetup import close_log, log, setup_log
+from .logsetup import close_log, log, redact, setup_log
 from .notify import notify
 from .remotes import real_host
+from .runlock import RunLocked
 from .settings import LOG_DIR
 
 
@@ -39,6 +40,7 @@ def wait_for_network(hosts, tries=30, delay=10, sleep=time.sleep, check=network_
 
 def failure(reason, detail="", log_dir=LOG_DIR):
     """Report a failed run: stderr, an ERROR line in the log, and a critical notification."""
+    reason, detail = redact(reason), redact(detail)
     text = f"{reason}{' (' + detail + ')' if detail else ''}"
     print(f"FAILED: {text}", file=sys.stderr)
     try:
@@ -79,6 +81,9 @@ def main(argv):
     print("scheduled sync starting")
     try:
         result, _ = sync.run_sync(cfg)
+    except RunLocked as e:                      # another run is doing the work right now: not a failure
+        print(e)
+        return 0
     except Exception as e:  # noqa: BLE001 - every failure must be reported, never swallowed
         failure("sync failed (commits may not be pushed)", str(e), log_dir)
         return 1

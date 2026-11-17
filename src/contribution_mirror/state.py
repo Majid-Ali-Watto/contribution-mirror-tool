@@ -1,34 +1,83 @@
-"""The saved state that makes PR/review scans incremental (and when to fall back to a full scan)."""
+"""The saved state (logs/api-state.json): per host, the account used and when its PR/review scan last succeeded
+(so the next scan is incremental), and what each self-hosted server turned out to be (so it is not probed every run).
+
+    {"version": 2,
+     "scopes": {"github.com": {"account": "me-work", "source": "gh:me-work", "last_success": "2026-...+00:00"}},
+     "hosts": {"git.corp.example": "gitlab"}}
+
+It holds no token and no repo name. Anything unreadable, or the older single-account format, is simply ignored:
+the next scan is then a full one, so nothing is ever skipped."""
 import json
 import os
 from datetime import datetime, timedelta, timezone
 
 from .settings import API_MARGIN_DAYS, API_WINDOW_DAYS
 
+VERSION = 2
+
+
 def state_path(log_dir):
     return os.path.join(log_dir, "api-state.json")
 
-def api_since(log_dir, who, mirror_has_commits, full):
-    """Start date for the API scan, plus a description for the log. Falls back to the full window whenever
-    the saved state cannot be trusted, so nothing is skipped."""
+
+def load_state(log_dir):
+    try:
+        with open(state_path(log_dir), encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return st if isinstance(st, dict) and st.get("version") == VERSION else {}
+
+
+def preferred_accounts(st):
+    """{scope: (token source, account)} chosen by the last successful run."""
+    out = {}
+    for scope, entry in (st.get("scopes") or {}).items():
+        if isinstance(entry, dict) and entry.get("source") and entry.get("account"):
+            out[scope] = (entry["source"], entry["account"])
+    return out
+
+
+def known_hosts(st):
+    """{host: provider name} learned by probing in earlier runs."""
+    hosts = st.get("hosts") or {}
+    return {h: n for h, n in hosts.items() if isinstance(h, str) and isinstance(n, str)}
+
+
+def api_since(st, scope, account, mirror_has_commits, full):
+    """Start date of the API scan for one host, plus a description for the screen. Falls back to the full window
+    whenever the saved state cannot be trusted, so nothing is skipped."""
     today = datetime.now(timezone.utc).date()
     full_start = today - timedelta(days=API_WINDOW_DAYS)
     if full:
         return full_start, "full (--full-api)"
     if not mirror_has_commits:
         return full_start, "full (mirror is empty)"
-    try:
-        with open(state_path(log_dir)) as f:
-            st = json.load(f)
-        if st.get("account") != who:
-            return full_start, "full (work account changed)"
-        last = datetime.fromisoformat(st["last_success"]).date()
-        return max(full_start, last - timedelta(days=API_MARGIN_DAYS)), f"incremental (since {last} minus {API_MARGIN_DAYS}d)"
-    except (OSError, ValueError, KeyError):
+    entry = (st.get("scopes") or {}).get(scope)
+    if not isinstance(entry, dict):
         return full_start, "full (no saved state)"
+    if entry.get("account") != account:
+        return full_start, "full (work account changed)"
+    try:
+        last = datetime.fromisoformat(entry["last_success"]).date()
+    except (KeyError, TypeError, ValueError):
+        return full_start, "full (no saved state)"
+    return max(full_start, last - timedelta(days=API_MARGIN_DAYS)), f"incremental (since {last} minus {API_MARGIN_DAYS}d)"
 
-def save_state(log_dir, who, started):
+
+def save_state(log_dir, done, started, hosts=None):
+    """Record the hosts whose scan succeeded (`done` = {scope: (account, token source)}) and probe results. Other
+    hosts keep what they had, so a host that failed this time is fully re-checked from its own last success."""
+    st = load_state(log_dir)
+    st["version"] = VERSION
+    scopes = st.setdefault("scopes", {})
+    for scope, (account, source) in done.items():
+        scopes[scope] = {"account": account, "source": source,
+                         "last_success": started.strftime("%Y-%m-%dT%H:%M:%S+00:00")}
+    if hosts:
+        st.setdefault("hosts", {}).update(hosts)
+    os.makedirs(log_dir, exist_ok=True)
     tmp = state_path(log_dir) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"account": who, "last_success": started.strftime("%Y-%m-%dT%H:%M:%S+00:00")}, f)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(st, f, indent=1, sort_keys=True)
     os.replace(tmp, state_path(log_dir))

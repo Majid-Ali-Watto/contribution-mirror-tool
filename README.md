@@ -28,6 +28,12 @@ Copies the **timestamps** of your work activity (commits, pull requests, reviews
 
 ## Quick start
 
+**New here? Follow [Getting started](docs/getting-started.md)**: a step-by-step guide from cloning to your first
+sync, with the setup page or with commands, plus troubleshooting. The short version:
+
+**With the setup page:** run `make ui` (or `python3 -I src/mirror.py ui`; Windows: `py -3 -I src\mirror.py ui`), fill in
+Setup, then Preview and Sync. **With files and commands:**
+
 1. Create an empty **private** repo on your personal GitHub account (the "mirror").
 2. Copy the two templates and fill them in (both copies are git-ignored, so nothing private is ever committed):
 
@@ -46,13 +52,23 @@ Copies the **timestamps** of your work activity (commits, pull requests, reviews
 
    (Both are wrappers for `python3 -I src/mirror.py sync` / `py -3 -I src\mirror.py sync`.)
 4. On GitHub enable **Profile > Contribution settings > Include private contributions on my profile**.
-5. Optional, run it automatically at login and daily on any system: `python3 -I src/mirror.py schedule install` ([Scheduling](docs/scheduling.md)).
+5. Optional, run it automatically at login and/or daily on any system: `python3 -I src/mirror.py schedule install`
+   (`--time 14:00`, `--no-login`, `--no-daily`; `uninstall` stops it), or the Schedule tab of the page below ([Scheduling](docs/scheduling.md)).
+
+**Prefer a page to files and commands?** `python3 -I src/mirror.py ui` (Windows: `py -3 -I src\mirror.py ui`) opens a
+local page in your browser: set up, preview with a calendar, sync, see which login each host uses, turn automatic runs
+on or off, and read the log. See [GUI](docs/gui.md).
+
+**On Linux or macOS?** `make help` lists short forms of everything: `make ui`, `make preview`, `make sync`,
+`make schedule TIME=14:00`, `make schedule-off`, `make test`.
 
 ## Project layout
 
 ```
 contribution-mirror-tool/
 ├── README.md
+├── CLAUDE.md                   notes for contributors and Claude Code: rules, layout, pitfalls
+├── Makefile                    short forms of the common commands (make help)
 ├── config/                     everything you edit
 │   ├── .env.example            template for your private settings        (copy to config/.env)
 │   ├── repos.example.json      template for your project list            (copy to config/repos.json)
@@ -61,11 +77,13 @@ contribution-mirror-tool/
 │   ├── sync.sh, sync.cmd                       mirror + push
 │   └── scheduled-sync.sh, scheduled-sync.cmd   what an OS scheduler runs
 ├── src/
-│   ├── mirror.py               Python entry point (sync | scheduled | schedule | core options)
+│   ├── mirror.py               Python entry point (sync | scheduled | schedule | accounts | ui | core options)
 │   └── contribution_mirror/    the code, one module per responsibility
 │       ├── cli.py              command dispatch, and the core run's steps in order
 │       ├── sync.py             mirror + push          scheduled.py   network wait, notify, errors
 │       ├── schedule.py         systemd / launchd / Task Scheduler      notify.py   desktop notifications
+│       ├── ui.py, ui_static/   the local setup and sync page (`mirror.py ui`)
+│       ├── accounts.py         which login each host would use (`mirror.py accounts`)
 │       ├── push.py             safe push, first-run remote, token fallback
 │       ├── config.py, envfile.py, settings.py      your settings, safe .env parser, paths and limits
 │       ├── repos.py            which projects to scan (paths, URLs, grouping by host)
@@ -74,22 +92,25 @@ contribution-mirror-tool/
 │       ├── credentials.py      find a login automatically and pick the right account
 │       ├── httpapi.py          small HTTPS JSON client (retries, https-only tokens)
 │       ├── providers/          one small file per git host: github, gitlab, bitbucket, azure, gitea
-│       ├── activity.py, state.py   PRs and reviews: account, window, incremental scans
-│       ├── mirror_repo.py      read the mirror, write new empty commits
+│       ├── activity.py, state.py   PRs and reviews: account, window, incremental scans (per host)
+│       ├── runlock.py          one run at a time
+│       ├── mirror_repo.py      read the mirror, catch up with your personal repo, write new empty commits
 │       ├── report.py, logsetup.py, timeutil.py   output, logging, timestamps from every vendor
 ├── tests/                      offline tests, stdlib only (python -m unittest discover -s tests)
-├── docs/                       usage, configuration, authentication, hosts, platforms, scheduling, how it works, performance, logs, privacy, terms
+├── docs/                       getting started, gui, usage, configuration, authentication, hosts, platforms, scheduling, how it works, performance, logs, privacy, terms
 │   └── assets/overview.svg     the diagram at the top of this README
 ├── .github/workflows/tests.yml runs the tests on Ubuntu, macOS and Windows
 ├── .github/rulesets/           the default-branch ruleset, importable (see docs/branch-protection.md)
 ├── LICENSE                     MIT
-└── logs/                       generated: mirror.log and api-state.json (git-ignored)
+└── logs/                       generated: mirror.log, api-state.json, mirror.lock (git-ignored)
 ```
 
 ## Documentation
 
 | Topic | Read |
 | --- | --- |
+| **First setup, step by step (start here)** | [docs/getting-started.md](docs/getting-started.md) |
+| The setup and sync page in your browser, and how it is secured | [docs/gui.md](docs/gui.md) |
 | Commands, `sync`, core options, scanning folders | [docs/usage.md](docs/usage.md) |
 | `config/.env`, `config/repos.json`, every setting | [docs/configuration.md](docs/configuration.md) |
 | ssh, https, CLIs, tokens, how the right account is chosen | [docs/authentication.md](docs/authentication.md) |
@@ -112,11 +133,13 @@ contribution-mirror-tool/
 ## Tests
 
 ```bash
-tests/run.sh                                  # Linux / macOS
+make test                                     # Linux / macOS (or tests/run.sh)
 python -m unittest discover -s tests          # any system (Windows: py -3 -m unittest discover -s tests)
 ```
 
-Offline: needs only Python and git, touches no network and no real config.
+Offline: needs only Python and git, touches no network and no real config. Before contributing, read
+[CLAUDE.md](CLAUDE.md): the rules the tests enforce (standard library only, Python 3.9+, no tokens or new web
+addresses in the code) and the parts that are easy to get wrong.
 
 ## Author and contact
 

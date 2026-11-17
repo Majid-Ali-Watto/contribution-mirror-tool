@@ -54,7 +54,9 @@ class Api:
                 r = self.local.conn.getresponse()
                 body = r.read()
             except (OSError, http.client.HTTPException):
-                self.local.conn = None          # reconnect on the next attempt
+                if getattr(self.local, "conn", None) is not None:
+                    self.local.conn.close()     # release the socket; reconnect on the next attempt
+                self.local.conn = None
                 time.sleep(min(2 ** attempt, 20))
                 continue
             headers = {k.lower(): v for k, v in r.getheaders()}

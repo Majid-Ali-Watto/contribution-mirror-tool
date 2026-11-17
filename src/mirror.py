@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point: `python3 -I src/mirror.py [sync | scheduled | schedule | <core options>]`.
+"""Entry point: `python3 -I src/mirror.py [sync | scheduled | schedule | accounts | ui | <core options>]`.
 
 Python's isolated mode (-I) does not put this folder on the import path, so it is added here explicitly.
 Only this folder is added (never the current directory), so nothing else can shadow the package."""
