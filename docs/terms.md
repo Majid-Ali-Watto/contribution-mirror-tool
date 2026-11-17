@@ -59,4 +59,5 @@ branch is the current one, and its history shows every change.
 
 ## Contact
 
-Majid Ali, [majidaliqau@gmail.com](mailto:majidaliqau@gmail.com).
+Majid Ali, [majidaliqau@gmail.com](mailto:majidaliqau@gmail.com) · [portfolio](https://majidev.netlify.app) ·
+[LinkedIn](https://www.linkedin.com/in/majid-ali-074b97245/).

@@ -65,5 +65,6 @@ the tool makes with your own credentials.
 
 ## Contact
 
-Questions or concerns about privacy: Majid Ali, [majidaliqau@gmail.com](mailto:majidaliqau@gmail.com). See also the
+Questions or concerns about privacy: Majid Ali, [majidaliqau@gmail.com](mailto:majidaliqau@gmail.com) ·
+[portfolio](https://majidev.netlify.app) · [LinkedIn](https://www.linkedin.com/in/majid-ali-074b97245/). See also the
 [terms](terms.md).

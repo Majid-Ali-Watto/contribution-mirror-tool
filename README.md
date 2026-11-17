@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="docs/assets/overview.svg" alt="Work repos on any git host are read for dates only; the tool writes empty commits with those dates to your personal repo, which fills your personal contribution graph." width="900">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Majid-Ali-Watto/contribution-mirror-tool/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/Majid-Ali-Watto/contribution-mirror-tool/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776AB.svg">
+  <img alt="Linux, macOS, Windows" src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey.svg">
+  <a href="https://majidev.netlify.app"><img alt="Portfolio" src="https://img.shields.io/badge/portfolio-majidev.netlify.app-0A66C2.svg"></a>
+</p>
+
 # contribution-mirror-tool
 
 Copies the **timestamps** of your work activity (commits, pull requests, reviews) into a separate personal repo as empty commits, so your personal GitHub contribution graph reflects your work without exposing any work code.
@@ -67,6 +79,7 @@ contribution-mirror-tool/
 │       ├── report.py, logsetup.py, timeutil.py   output, logging, timestamps from every vendor
 ├── tests/                      offline tests, stdlib only (python -m unittest discover -s tests)
 ├── docs/                       usage, configuration, authentication, hosts, platforms, scheduling, how it works, performance, logs, privacy, terms
+│   └── assets/overview.svg     the diagram at the top of this README
 ├── .github/workflows/tests.yml runs the tests on Ubuntu, macOS and Windows
 ├── .github/rulesets/           the default-branch ruleset, importable (see docs/branch-protection.md)
 ├── LICENSE                     MIT
