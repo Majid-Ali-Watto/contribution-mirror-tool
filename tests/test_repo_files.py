@@ -82,8 +82,13 @@ class Files(unittest.TestCase):
                     rel = os.path.relpath(os.path.join(dirpath, n), ROOT)
                     if rel in skip or "__pycache__" in rel:
                         continue
-                    with open(os.path.join(ROOT, rel), encoding="utf-8", errors="ignore") as f:
-                        text = f.read()
+                    with open(os.path.join(ROOT, rel), "rb") as f:
+                        data = f.read()
+                    if b"\0" in data[:8192]:
+                        # binary (images): compressed bytes match short patterns by chance, and the text drawn in an
+                        # image cannot be found this way anyway; screenshots are checked by eye before they are added
+                        continue
+                    text = data.decode("utf-8", errors="ignore")
                     if any(m.group(1) not in placeholders for pat in patterns for m in pat.finditer(text)) \
                             or any(p.search(text) for p in private):
                         offenders.append(rel)

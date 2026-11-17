@@ -59,8 +59,48 @@ Setup, then Preview and Sync. **With files and commands:**
 local page in your browser: set up, preview with a calendar, sync, see which login each host uses, turn automatic runs
 on or off, and read the log. See [GUI](docs/gui.md).
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ui-sync-dark.png">
+    <img src="docs/assets/ui-sync-light.png" alt="The setup page on its Sync tab after a preview: 2 sources, 292 contributions found, 150 already mirrored, 142 would be added, a 12-month contribution calendar with the days to add ringed, and the count per project." width="900">
+  </picture>
+  <br><sub>The Sync tab after a preview (demo data): what would be added, per project, on a 12-month calendar.</sub>
+</p>
+
 **On Linux or macOS?** `make help` lists short forms of everything: `make ui`, `make preview`, `make sync`,
 `make schedule TIME=14:00`, `make schedule-off`, `make test`.
+
+## Screenshots
+
+The setup page (`make ui`), with demo data. The Sync tab is shown above; the light or dark version follows your
+GitHub theme.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ui-setup-dark.png">
+    <img src="docs/assets/ui-setup-light.png" alt="The Setup tab: work email, name, verified personal email and mirror repo with a Check button; below, the project list with a green dot for usable entries (two local paths and a GitHub URL) and a red one for a folder that is not found." width="900">
+  </picture>
+  <br><sub><b>Setup</b>: your details and projects, each entry checked (here one folder is missing).</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ui-schedule-dark.png">
+    <img src="docs/assets/ui-schedule-light.png" alt="The Schedule tab: checkboxes for a run at login and a run every day at 18:00, an optional time zone, and Apply and Turn all off buttons; a badge reads: at login and every day at 18:00." width="900">
+  </picture>
+  <br><sub><b>Schedule</b>: turn the run at login and the daily run on or off, and pick the time.</sub>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ui-logs-dark.png">
+    <img src="docs/assets/ui-logs-light.png" alt="The Logs tab: a bar chart of new commits per sync over the last month, and the log table newest first with time, level and message." width="900">
+  </picture>
+  <br><sub><b>Logs</b>: new commits per sync, and the log with a filter for warnings and errors.</sub>
+</p>
+
+The **Accounts** tab lists, for each host, the login used for pull requests and reviews. See [GUI](docs/gui.md) for every
+tab.
 
 ## Project layout
 
@@ -98,7 +138,7 @@ contribution-mirror-tool/
 │       ├── report.py, logsetup.py, timeutil.py   output, logging, timestamps from every vendor
 ├── tests/                      offline tests, stdlib only (python -m unittest discover -s tests)
 ├── docs/                       getting started, gui, usage, configuration, authentication, hosts, platforms, scheduling, how it works, performance, logs, privacy, terms
-│   └── assets/overview.svg     the diagram at the top of this README
+│   └── assets/                 overview.svg (the diagram above), ui-*-light/dark.png (setup page screenshots)
 ├── .github/workflows/tests.yml runs the tests on Ubuntu, macOS and Windows
 ├── .github/rulesets/           the default-branch ruleset, importable (see docs/branch-protection.md)
 ├── LICENSE                     MIT

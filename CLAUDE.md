@@ -112,6 +112,14 @@ run them directly), so every target must stay a plain command that also works wi
   (`schedule_ops`), Logs (parses `mirror.log*`; the log dir comes from `MIRROR_LOG_DIR` in the shell, then `.env`).
   Tests that read logs must set `MIRROR_LOG_DIR`, or they read the developer's real `logs/`.
 
+## Screenshots (`docs/assets/ui-*-light.png` / `-dark.png`)
+
+- Take them from demo data under a neutral folder (e.g. `/tmp/alex/...`) with a fake scheduler
+  (`ui.App(schedule_ops=...)`), never from a real setup: the page shows full paths, emails and the mirror URL.
+- Check every image by eye before adding it, and crop away anything that shows a real path (the Sync tab's output
+  log does). The hygiene test skips binary files, so it cannot catch text drawn in an image.
+- Each screenshot has a light and a dark version, used through a `<picture>` element in the README.
+
 ## Adding a git host
 
 One file in `providers/` subclassing `Provider` (`api_base`, `headers`, `whoami`, `score`, `fetch`), registered in

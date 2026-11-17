@@ -606,5 +606,6 @@ $(".tabs").addEventListener("keydown", (ev) => {
 let savedTab = null;
 try { savedTab = sessionStorage.getItem("mirror-tab"); } catch (_) { /* optional */ }
 selectTab(START_TAB || (TABS.includes(savedTab) ? savedTab : "setup"));
+requestAnimationFrame(() => requestAnimationFrame(() => $(".tabs").classList.add("ready")));
 
 load();
