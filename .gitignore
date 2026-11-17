@@ -1,7 +1,13 @@
+# generated
 logs/
 __pycache__/
 *.pyc
 
 # private settings: never commit
+config/.env
+config/repos.json
 .env
 repos.json
+
+# local list of names to keep out of a public repo (see tests/test_repo_files.py)
+tests/.private-patterns

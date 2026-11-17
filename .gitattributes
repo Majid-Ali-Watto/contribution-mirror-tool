@@ -1,0 +1,5 @@
+# Shell wrappers must keep LF (a CRLF checkout on Windows breaks the shebang); .cmd files need CRLF.
+*.sh  text eol=lf
+*.cmd text eol=crlf
+*.py  text eol=lf
+*.md  text eol=lf

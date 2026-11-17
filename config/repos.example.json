@@ -1,0 +1,10 @@
+{
+  "repos": [
+    "/path/to/a-repo-you-have-cloned",
+    "git@github.com:YourOrg/a-repo-over-ssh.git",
+    "https://gitlab.com/YourGroup/sub/a-gitlab-project.git",
+    "git@bitbucket.org:YourWorkspace/a-bitbucket-repo.git",
+    "https://dev.azure.com/YourOrg/YourProject/_git/an-azure-repo",
+    "https://codeberg.org/YourOrg/a-gitea-repo.git"
+  ]
+}
