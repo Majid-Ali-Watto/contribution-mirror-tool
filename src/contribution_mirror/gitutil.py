@@ -55,21 +55,41 @@ def git_lines(repo, *args, env=None):
             raise RuntimeError(f"git {args[0]} failed: {' | '.join(lines[-2:]) if lines else f'exit {rc}'}")
 
 
+# a `Co-authored-by: Name <email>` trailer line (GitHub counts such a commit for every co-author too)
+_CO_AUTHOR = re.compile(r"^\s*co-authored-by:.*<([^<>\s]+)>\s*$", re.I | re.M)
+_RECORD = "\x1e"                     # starts each commit in the co-author pass (its message spans several lines)
+
+
 def source_commits(repo, emails, env=None):
-    """{commit hash: author date} of the commits authored with one of `emails` (lowercase). git does the filtering
-    (`--author`, fixed strings, any case, the raw email not the .mailmap one), so only your commits reach Python; the
-    exact email is checked again here. Lazy fetching is disabled: all commits are local, so this never needs the
-    network (or credentials)."""
+    """{commit hash: author date} of the commits authored with one of `emails` (lowercase), or that name one of them
+    in a `Co-authored-by:` trailer (pair programming, a squash merge made by someone else): GitHub counts those for
+    every co-author. git does the filtering (`--author` / `--grep`, fixed strings, any case, the raw email not the
+    .mailmap one), so only your commits reach Python; the exact email is checked again here. Lazy fetching is
+    disabled: all commits are local, so this never needs the network (or credentials)."""
     out = {}
     env = {**(env or os.environ), "GIT_NO_LAZY_FETCH": "1"}
-    authors = [f"--author=<{e}>" for e in sorted(emails)]
-    for line in git_lines(repo, "log", *LOG_REFS, "--no-use-mailmap", "--no-show-signature",
-                          "--fixed-strings", "--regexp-ignore-case", *authors, LOG_FORMAT, env=env):
+    common = ["log", *LOG_REFS, "--no-use-mailmap", "--no-show-signature", "--fixed-strings", "--regexp-ignore-case"]
+    for line in git_lines(repo, *common, *[f"--author=<{e}>" for e in sorted(emails)], LOG_FORMAT, env=env):
         sha, _, rest = line.partition(" ")
         email, _, date = rest.rpartition(" ")
         if date and email.lower() in emails:
             out[sha] = canonical_date(date)
+    record = None                                           # [hash, date, message lines] of the commit being read
+    for line in git_lines(repo, *common, *[f"--grep=<{e}>" for e in sorted(emails)],
+                          f"--format={_RECORD}%H %aI%n%B", env=env):
+        if line.startswith(_RECORD):
+            _co_authored(record, emails, out)
+            record = [*line[1:].split(" ", 1), []]
+        elif record:
+            record[2].append(line)
+    _co_authored(record, emails, out)
     return out
+
+
+def _co_authored(record, emails, out):
+    if record and len(record) == 3 and record[0] not in out:
+        if any(m.lower() in emails for m in _CO_AUTHOR.findall("\n".join(record[2]))):
+            out[record[0]] = canonical_date(record[1])
 
 
 def source_dates(repo, emails, env=None):

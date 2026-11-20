@@ -18,7 +18,9 @@ VERSION = 2
 
 
 def state_path(log_dir):
-    return os.path.join(log_dir, "api-state.json")
+    """api-state.json, or api-state-NAME.json for profile NAME (profiles share the log folder, not their accounts)."""
+    profile = os.environ.get("MIRROR_PROFILE", "").strip()
+    return os.path.join(log_dir, f"api-state-{profile}.json" if profile else "api-state.json")
 
 
 def load_state(log_dir):

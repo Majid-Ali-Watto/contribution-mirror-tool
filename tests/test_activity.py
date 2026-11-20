@@ -11,8 +11,9 @@ import _path  # noqa: F401
 from contribution_mirror import activity
 
 
-def pick(scope, login, fetch, label="Fake", reviews=True):
-    provider = SimpleNamespace(label=label, reviews=reviews, fetch=fetch)
+def pick(scope, login, fetch, label="Fake", reviews=True, issues=()):
+    provider = SimpleNamespace(label=label, reviews=reviews, fetch=fetch,
+                               fetch_issues=lambda api, login, repos, since: list(issues))
     return SimpleNamespace(login=login, provider=provider, source="test", scope=scope, api=lambda: "api")
 
 
@@ -29,9 +30,16 @@ class Activity(unittest.TestCase):
         fetch = lambda api, login, repos, since: (["2026-01-01T10:00:00.1234567+05:00"], ["2026-01-02T00:00:00Z"] * 2)
         (items, who, _), out, _ = self.run_activity({"github.com": pick("github.com", "me", fetch)}, {"github.com": ["o/r"]})
         self.assertEqual(dict(items), {"api:pull-requests": Counter({"2026-01-01T05:00:00Z": 1}),
-                                       "api:reviews": Counter({"2026-01-02T00:00:00Z": 2})})
+                                       "api:reviews": Counter({"2026-01-02T00:00:00Z": 2}),
+                                       "api:issues": Counter()})
         self.assertEqual(who, {"github.com": ("me", "test")})
         self.assertIn("github.com (Fake) as me via test", out)
+
+    def test_issues_opened_are_their_own_source(self):
+        fetch = lambda api, login, repos, since: ([], [])
+        p = pick("github.com", "me", fetch, issues=["2026-03-01T09:00:00+01:00"])
+        (items, _, _), _, _ = self.run_activity({"github.com": p}, {"github.com": ["o/r"]})
+        self.assertEqual(dict(items)["api:issues"], Counter({"2026-03-01T08:00:00Z": 1}))
 
     def test_two_hosts_are_combined(self):
         f1 = lambda api, login, repos, since: (["2026-01-01T00:00:00Z"], [])

@@ -26,6 +26,12 @@ def search_items(api, base_q, field, a, b):
     return items
 
 
+def repo_of(item):
+    """'owner/repo' of a search result (from its repository_url), or '' if the host did not say."""
+    url = item.get("repository_url") or ""
+    return url.split("/repos/", 1)[-1] if url else ""
+
+
 def pr_reviews(api, repo, number, login, since):
     """Submission times of `login`'s reviews on one PR (all pages)."""
     out, page = [], 1
@@ -44,6 +50,7 @@ class GitHub(Provider):
     label = "GitHub"
     has_activity = True
     reviews = True
+    issues = True
     work_envs = ("WORK_GITHUB_TOKEN",)
     env_vars = ("GH_TOKEN", "GITHUB_TOKEN")
     enterprise_env_vars = ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
@@ -89,10 +96,15 @@ class GitHub(Provider):
             f_rev = ex.submit(search_items, api, f"reviewed-by:{login} type:pr -author:{login}", "updated", since, end)
             prs, reviewed = f_prs.result(), f_rev.result()
         owners = listed_owners(repos)
-        repo_of = lambda i: (i.get("repository_url") or "").split("/repos/", 1)[-1] if i.get("repository_url") else ""
         pr_times = [i["created_at"] for i in prs if owned_by(repo_of(i), owners)]
         jobs = [(repo_of(i), i["number"]) for i in reviewed if owned_by(repo_of(i), owners)]
         del prs, reviewed
         with ThreadPoolExecutor(API_WORKERS) as ex:
             review_times = [t for ts in ex.map(lambda j: pr_reviews(api, j[0], j[1], login, since), jobs) for t in ts]
         return pr_times, review_times
+
+    def fetch_issues(self, api, login, repos, since):
+        end = datetime.now(timezone.utc).date() + timedelta(days=1)
+        found = search_items(api, f"author:{login} type:issue", "created", since, end)
+        owners = listed_owners(repos)
+        return [i["created_at"] for i in found if owned_by(repo_of(i), owners)]

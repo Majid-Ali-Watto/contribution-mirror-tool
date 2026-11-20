@@ -1,6 +1,7 @@
 """Pushing the mirror to your personal repo: safety check, first-run remote, nothing-to-push shortcut, optional
 ssh key, and an https + token fallback when your normal git setup cannot push. Also fetching the personal repo
 first, so a second computer never duplicates what is already there."""
+import os
 import subprocess
 
 from .credentials import env_tokens, helper_token
@@ -8,7 +9,7 @@ from .gitutil import run_git, token_env, work_env
 from .httpapi import Api
 from .logsetup import redact
 from .providers import host_of, provider_for
-from .remotes import https_url, real_host, repo_key, repo_path
+from .remotes import https_url, is_url, real_host, repo_key, repo_path
 
 # Hosts where a personal repo's owner is the account's login, so a token can be checked against it before use.
 OWNER_IS_LOGIN = ("github", "gitlab", "gitea")
@@ -79,6 +80,16 @@ def _mirror_tokens(cfg):
     return provider, host, owner, tokens
 
 
+def owner_token(cfg):
+    """(provider, host, owner, token) with a token of the account that owns the mirror repo, or None. Only on hosts
+    where that can be checked (OWNER_IS_LOGIN); used to read the account's own settings (doctor), never to push."""
+    provider, host, owner, tokens = _mirror_tokens(cfg)
+    if provider.name not in OWNER_IS_LOGIN:
+        return None
+    tok = next((t for t in tokens if _token_owns(provider, host, t, owner)), None)
+    return (provider, host, owner, tok) if tok else None
+
+
 def _with_token(cfg, args, timeout):
     """Run git `args` (inside the mirror) over https with a token of the account that owns the mirror repo. Returns
     an error string or None."""
@@ -101,6 +112,28 @@ def _push_with_token(cfg):
     if err is None:
         _git(cfg.mirror_dir, "update-ref", "refs/remotes/origin/main", "main")
     return err
+
+
+def check_remote(remote):
+    """Can your normal git setup reach the mirror repo? (`git ls-remote`, never prompts). Returns (ok, message)."""
+    if not remote:
+        return False, "enter the mirror repo first"
+    if not is_url(remote) and not os.path.exists(os.path.expanduser(remote)):
+        return False, "not a URL, and no such local path"
+    try:
+        r = subprocess.run(["git", "ls-remote", "--heads", "--", remote], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30, env=work_env(batch_ssh=True),
+                           stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return False, "no answer within 30 s"
+    except OSError as e:
+        return False, f"git could not be started: {e}"
+    if r.returncode == 0:
+        branches = len([l for l in r.stdout.splitlines() if l.strip()])
+        return True, "reachable" + (" (empty repo: the first sync fills it)" if branches == 0 else "")
+    lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
+    return False, redact(" | ".join(lines[-2:]) if lines else f"git exit {r.returncode}") + \
+        " (the push may still work with a token found automatically)"
 
 
 def ensure_remote(cfg):

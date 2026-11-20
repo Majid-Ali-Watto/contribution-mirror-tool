@@ -112,7 +112,7 @@ contribution-mirror-tool/
 │   ├── sync.sh, sync.cmd                       mirror + push
 │   └── scheduled-sync.sh, scheduled-sync.cmd   what an OS scheduler runs
 ├── src/
-│   ├── mirror.py               Python entry point (sync | scheduled | schedule | accounts | setup | ui | core options)
+│   ├── mirror.py               Python entry point (sync | scheduled | schedule | accounts | doctor | setup | ui | core)
 │   └── contribution_mirror/    the code, one module per responsibility
 │       ├── __main__.py         `python -I -m contribution_mirror` (installed copy)
 │       ├── templates/          env.example, repos.example.json: the templates `setup` copies
@@ -121,6 +121,7 @@ contribution-mirror-tool/
 │       ├── schedule.py         systemd / launchd / Task Scheduler      notify.py   desktop notifications
 │       ├── ui.py, ui_static/   the local setup and sync page (`mirror.py ui`)
 │       ├── accounts.py         which login each host would use (`mirror.py accounts`)
+│       ├── doctor.py           check the whole setup, with fixes (`mirror.py doctor`)
 │       ├── push.py             safe push, first-run remote, token fallback
 │       ├── config.py, envfile.py, settings.py      your settings, safe .env parser, paths and limits
 │       ├── repos.py            which projects to scan (paths, URLs, grouping by host)
@@ -159,6 +160,7 @@ contribution-mirror-tool/
 | What is read and written, what gets counted, caveats | [docs/how-it-works.md](docs/how-it-works.md) |
 | Why it is fast and light | [docs/performance.md](docs/performance.md) |
 | The log file (`mirror.log`) and the SUMMARY line | [docs/logs.md](docs/logs.md) |
+| What changed in each version (`mirror.py --version` prints yours) | [CHANGELOG.md](CHANGELOG.md) |
 | The default-branch ruleset used on this repo, and how to apply it | [docs/branch-protection.md](docs/branch-protection.md) |
 | What the tool reads, writes and contacts (no telemetry) | [docs/privacy.md](docs/privacy.md) |
 | Terms of use: licence, no warranty, your responsibilities | [docs/terms.md](docs/terms.md) |

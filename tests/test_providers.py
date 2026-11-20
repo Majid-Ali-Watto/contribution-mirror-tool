@@ -215,6 +215,31 @@ class OnlyTheListedWork(AgainstAFakeHost):
             self.assertEqual(got, (["2026-02-01T00:00:00Z"], ["2026-03-03T00:00:00Z"]))
             self.assertFalse(any("oss/lib" in r["path"] for r in h.requests))       # not even looked up
 
+    def test_issues_opened_on_each_host_that_lists_them(self):
+        with FakeHost() as h:                                                # GitHub: search, listed owners only
+            h.routes["/search/issues"] = lambda q: (200, {"total_count": 2, "items": [
+                {"created_at": "2026-02-05T00:00:00Z", "repository_url": f"{h.url}/repos/acme/web"},
+                {"created_at": "2026-02-06T00:00:00Z", "repository_url": f"{h.url}/repos/oss/lib"}]}) \
+                if q["q"].startswith("author:me type:issue") else (500, {})
+            p = PROVIDERS["github"]
+            self.assertEqual(p.fetch_issues(self.api(h, p), "me", ["acme/web"], SINCE), ["2026-02-05T00:00:00Z"])
+        with FakeHost() as h:                                                # GitLab: issue events in listed projects
+            h.routes["/user"] = (200, {"id": 7})
+            h.routes["/projects/acme%2Fweb"] = (200, {"id": 1})
+            h.routes["/users/7/events"] = lambda q: (200, [{"created_at": "2026-02-07T00:00:00Z", "project_id": 1},
+                                                           {"created_at": "2026-02-08T00:00:00Z", "project_id": 2}]) \
+                if (q["action"], q["target_type"]) == ("created", "issue") else (200, [])
+            p = PROVIDERS["gitlab"]
+            self.assertEqual(p.fetch_issues(self.api(h, p), "me", ["acme/web"], SINCE), ["2026-02-07T00:00:00Z"])
+        with FakeHost() as h:                                                # Gitea: issue search by creator
+            h.routes["/repos/issues/search"] = lambda q: (200, [
+                {"created_at": "2026-02-09T00:00:00Z", "repository": {"full_name": "acme/a"}}]) \
+                if (q.get("type"), q.get("created_by")) == ("issues", "me") else (200, [])
+            p = PROVIDERS["gitea"]
+            self.assertEqual(p.fetch_issues(self.api(h, p), "me", ["acme/a"], SINCE), ["2026-02-09T00:00:00Z"])
+        for name in ("bitbucket", "azure"):                                  # no issues to read there
+            self.assertEqual((PROVIDERS[name].issues, PROVIDERS[name].fetch_issues(None, "me", [], SINCE)), (False, []))
+
     def test_gitea_reviews_use_the_update_time_and_listed_owners(self):
         p = PROVIDERS["gitea"]
         with FakeHost() as h:

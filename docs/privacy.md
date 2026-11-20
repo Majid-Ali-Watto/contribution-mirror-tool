@@ -18,7 +18,8 @@ git hosts it supports (`api.github.com`, `api.bitbucket.org`, `dev.azure.com`), 
 | What | Why | Where it goes |
 | --- | --- | --- |
 | The **author email, author date and hash** of commits in the repos you list | to find your work activity (the hash only to count a commit that is in two listed repos once) | held in memory; only the dates are written to your mirror |
-| The **timestamps** of pull / merge requests you opened and reviews you made (from your git host's API) | to include them in the mirror | only the timestamps are written to your mirror |
+| The **message** of commits that mention one of your work emails | only to find a `Co-authored-by:` line naming you (such commits count for you too) | held in memory during the run, never written or logged |
+| The **timestamps** of pull / merge requests you opened, reviews you made and issues you opened (from your git host's API) | to include them in the mirror | only the timestamps are written to your mirror |
 | Your settings file (`.env`) and project list (`repos.json`) | to know who you are and which projects to scan | stay in those files, on your computer, private to you ([where they are](configuration.md#where-the-files-are)) |
 | Tokens and logins already on your computer: environment variables, the `gh` / `glab` / `az` command line tools, your git credential helper | to talk to your git host | used in memory for the request; **never printed, logged or written to disk** by the tool |
 
@@ -57,7 +58,7 @@ value of an `Authorization:` header is replaced too. Tokens are not written to t
 Only the hosts you point it at, over the connections your own git and network setup use:
 
 - **Your git hosts** (GitHub, GitLab, Bitbucket, Azure DevOps, Gitea/Forgejo or your own server) for `git fetch`, `git clone`
-  and `git push`, and their **REST APIs** for pull request and review timestamps. Your credentials are sent to the host they
+  and `git push`, and their **REST APIs** for pull request, review and issue timestamps. Your credentials are sent to the host they
   belong to and nowhere else, only over `https` (plain `http` is accepted for `localhost` only), and a link in a response
   pointing to another host is never followed.
 - **A server it does not recognise**, if you list one: up to three requests to its public version endpoints

@@ -50,6 +50,7 @@ class Provider:
     label = "generic git host (commits only)"
     has_activity = False            # can it list PRs / reviews?
     reviews = False                 # ... and reviews, not just authored PRs?
+    issues = False                  # ... and issues you opened?
     work_envs = ()                  # env vars that explicitly choose your account
     env_vars = ()                   # conventional env vars that may hold a token
     api_url_env = ""                # env var that overrides the API URL (self-hosted)
@@ -90,3 +91,8 @@ class Provider:
         """(timestamps of PRs you opened, timestamps of reviews you made) since a date, as ISO strings. Only activity
         in the listed repos' owners (or, where the host cannot say that, the listed projects) is returned."""
         raise NotImplementedError
+
+    def fetch_issues(self, api, login, repos, since):
+        """Timestamps of the issues you opened since a date (ISO strings), limited like fetch(). Hosts whose graph
+        counts opened issues (GitHub) or that list them per user implement it."""
+        return []

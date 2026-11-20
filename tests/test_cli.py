@@ -50,6 +50,25 @@ class EndToEnd(unittest.TestCase):
         self.run_cli("--apply")
         self.assertEqual(logsetup.log.handlers, [])
 
+    def test_a_date_range_leaves_out_what_is_outside_it(self):
+        out = self.run_cli("--since", "2026-01-02", "--until", "2026-02-28", "--apply")
+        self.assertIn("2026-01-02 to 2026-02-28 (2 outside, not mirrored)", out)
+        self.assertEqual(self.count(), 2)                         # 2026-01-02 and 2026-02-01
+        self.assertIn("created=0", self.run_cli("--since", "2026-01-02", "--until", "2026-02-28", "--apply"))
+        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+            self.run_cli("--since", "01/02/2026")
+        self.assertIn("use YYYY-MM-DD", err.getvalue())
+
+    def test_version(self):
+        from contribution_mirror import __version__
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["--version"]), 0)
+        self.assertEqual(out.getvalue().strip(), f"contribution-mirror {__version__}")
+        self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")
+        with open(os.path.join(_path.ROOT, "CHANGELOG.md"), encoding="utf-8") as f:
+            self.assertIn(f"## {__version__} ", f.read())              # every version is in the changelog
+
     def test_dry_run_writes_nothing(self):
         out = self.run_cli()
         self.assertIn("to create            : 4", out)        # 2 + (1 + merge) from b

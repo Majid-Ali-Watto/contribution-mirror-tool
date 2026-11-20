@@ -100,6 +100,9 @@ h1 { font-size: 20px; margin: 0; }
 .sub { margin: 0; color: var(--muted); font-size: 13px; }
 
 .top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.profile { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.profile select { width: auto; padding: 4px 8px; font-size: 12px; }
+.ver { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .theme { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
   background: var(--card); }
 .theme button { border: 0; border-radius: 0; padding: 5px 10px; font-size: 12px; font-weight: 600;
@@ -112,6 +115,7 @@ h1 { font-size: 20px; margin: 0; }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.err { background: var(--danger-soft); color: var(--danger); }
 .pill.run { background: var(--info-soft); color: var(--info); }
+.pill.skip { background: var(--code); color: var(--muted); }
 .pill:empty { display: none; }
 
 /* tabs: a segmented bar that stays at the top while the page scrolls */
@@ -291,3 +295,17 @@ h3 { font-size: 14px; margin: 0; }
   .repo-list .tag { display: none; }
   .repo-list li { padding: 8px; gap: 8px; }
 }
+
+/* Check (doctor) results */
+.checks { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.checks li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: start; padding: 8px 0;
+  border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.checks li:first-child { border-top: 0; }
+.checks .pill { justify-self: start; }
+.checks .detail { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+/* Tooltips (see app.js): shown on hover, keyboard focus and long press */
+.tip { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 6px 10px;
+  border-radius: 6px; background: var(--text); color: var(--card); font-size: 12px; font-weight: 500;
+  line-height: 1.4; box-shadow: var(--shadow); pointer-events: none; }
+.tip[hidden] { display: none; }

@@ -11,3 +11,6 @@ repos.json
 
 # local list of names to keep out of a public repo (see tests/test_repo_files.py)
 tests/.private-patterns
+
+# profiles: each has private settings and a project list
+config/profiles/

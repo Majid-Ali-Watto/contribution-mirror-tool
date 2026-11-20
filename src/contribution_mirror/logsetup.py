@@ -46,7 +46,7 @@ def setup_log(log_dir):
     private_dir(log_dir)
     close_log()
     for name in os.listdir(log_dir):                     # older files, written before they were made private
-        if name.startswith(("mirror.log", "api-state.json")):
+        if name.startswith(("mirror.log", "api-state")):
             make_private(os.path.join(log_dir, name))
     h = _PrivateRotatingFileHandler(os.path.join(log_dir, "mirror.log"),
                                              maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS,

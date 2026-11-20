@@ -11,7 +11,7 @@ MIRROR := $(PYTHON) -I src/mirror.py
 TIME ?= 18:00
 
 .DEFAULT_GOAL := help
-.PHONY: help setup ui preview sync accounts schedule schedule-login schedule-daily schedule-off schedule-status \
+.PHONY: help setup ui preview sync accounts doctor schedule schedule-login schedule-daily schedule-off schedule-status \
         test check clean
 
 help: ## show the targets
@@ -33,6 +33,9 @@ sync: ## mirror new activity and push to your mirror repo
 
 accounts: ## show which login each host would use for pull requests and reviews
 	$(MIRROR) accounts
+
+doctor: ## check the whole setup and say how to fix what is wrong (reads only)
+	$(MIRROR) doctor
 
 schedule: ## automatic runs at login and daily at TIME (default 18:00), e.g. make schedule TIME=14:00
 	$(MIRROR) schedule install --time $(TIME)

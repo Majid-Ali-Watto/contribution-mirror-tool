@@ -111,28 +111,38 @@ def days_ago(n):
 # Fake servers must answer with FIXED timestamps: a value computed per request would differ by a second between two
 # runs, and the same pull request would then (correctly) look like a new one.
 def github_routes(h):
-    created, reviewed = days_ago(10), days_ago(9)
+    created, reviewed, opened = days_ago(10), days_ago(9), days_ago(7)
     h.routes["/user"] = (200, {"login": "me"})
-    h.routes["/search/issues"] = lambda q: (200, {"total_count": 1, "items": [{"created_at": created}]}) if q["q"].startswith("author:me") \
-        else (200, {"total_count": 1, "items": [{"number": 9, "repository_url": f"{h.url}/repos/acme/web"}]})
+    def search(q):
+        if q["q"].startswith("author:me type:issue"):
+            return 200, {"total_count": 1, "items": [{"created_at": opened, "repository_url": f"{h.url}/repos/acme/web"}]}
+        if q["q"].startswith("author:me"):
+            return 200, {"total_count": 1, "items": [{"created_at": created}]}
+        return 200, {"total_count": 1, "items": [{"number": 9, "repository_url": f"{h.url}/repos/acme/web"}]}
+    h.routes["/search/issues"] = search
     h.routes["/repos/acme/web/pulls/9/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed}])
-    return 1, 1
+    return 1, 1, 1
 
 
 def gitlab_routes(h):
     created, approved = days_ago(10), days_ago(8)
     h.routes["/user"] = (200, {"id": 7, "username": "me"})
-    h.routes["/users/7/events"] = lambda q: (200, [{"created_at": created}] if q["action"] == "created" else [{"created_at": approved}] * 2)
-    return 1, 2
+    opened = days_ago(6)
+    h.routes["/users/7/events"] = lambda q: (200, [{"created_at": opened}] if q["target_type"] == "issue" else
+                                             [{"created_at": created}] if q["action"] == "created" else
+                                             [{"created_at": approved}] * 2)
+    return 1, 2, 1
 
 
 def gitea_routes(h):
     created, reviewed = days_ago(10), days_ago(9)
     h.routes["/user"] = (200, {"login": "me"})
-    h.routes["/repos/issues/search"] = lambda q: (200, [{"created_at": created}]) if q.get("created_by") == "me" \
+    opened = days_ago(5)
+    h.routes["/repos/issues/search"] = lambda q: (200, [{"created_at": opened}]) if q.get("type") == "issues" \
+        else (200, [{"created_at": created}]) if q.get("created_by") == "me" \
         else (200, [{"number": 5, "user": {"login": "x"}, "repository": {"full_name": "acme/tool"}}])
     h.routes["/repos/acme/tool/pulls/5/reviews"] = (200, [{"user": {"login": "me"}, "submitted_at": reviewed, "state": "APPROVED"}])
-    return 1, 1
+    return 1, 1, 1
 
 
 def bitbucket_routes(h):

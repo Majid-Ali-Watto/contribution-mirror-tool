@@ -113,6 +113,23 @@ It uses your system's own scheduler (systemd, launchd or Task Scheduler). Each a
 and project list when it starts, so changes you save later are used without reinstalling. Automatic runs cannot type
 passwords: use an ssh agent or an https credential helper. Details: [scheduling](scheduling.md).
 
+## Checking the setup
+
+If something looks wrong, or nothing shows on your graph, let the tool check itself: **Setup > Check my setup** on the
+page, or `make doctor` / `python3 -I src/mirror.py doctor`. It only reads (nothing is changed or pushed) and prints each
+check with how to fix it:
+
+| Check | What it finds |
+| --- | --- |
+| Settings file, project list | Missing or unreadable files, an empty list, entries that are not repos, files other users can read. |
+| Work email | How many of your commits each local clone has; 0 means `WORK_EMAIL` differs from your author email. |
+| Mirror repo, mirror folder | Whether git can reach the mirror repo, and whether the mirror folder is really your mirror. |
+| Personal account (GitHub) | Whether `PERSONAL_EMAIL` is verified on the account that owns the mirror, and whether the repo's default branch is `main`. Needs that account's login on this computer (e.g. `gh auth login`); reading your emails needs the `user:email` scope (`gh auth refresh -h github.com -s user:email`). |
+| Logins | The login each work host uses for pull requests and reviews, as a sync would choose it. |
+| Automatic runs | Whether they are set up, when the last sync was, and whether the last scheduled run failed. |
+
+The command exits with code 1 if a check found a problem (warnings do not count), so a script can use it too.
+
 ## Checking on it
 
 - Page: **Logs** shows a bar per sync and the log, newest first.
@@ -138,7 +155,7 @@ passwords: use an ssh agent or an https credential helper. Details: [scheduling]
 | `refusing to push: origin is ...` | The mirror folder points at another repo than `EXPECTED_REMOTE`. Fix the URL in Setup or in your settings file. |
 | `refusing to write to <folder>: it has commits this tool did not make` | `MIRROR_DIR` points at a folder with other work in it. Use a new folder, or mark your own mirror as the message says ([the mirror folder](configuration.md#the-mirror-folder)). |
 | `another run is in progress` | A manual sync and an automatic run overlapped; try again in a minute. |
-| Commits pushed but not on the graph | Verify the personal email (step 3.2), enable private contributions (step 3.3), wait a few minutes. |
+| Commits pushed but not on the graph | Run **Check my setup** (or `mirror.py doctor`). Usually: verify the personal email (step 3.2), enable private contributions (step 3.3), wait a few minutes. |
 | Anything else | `mirror.log` in your log folder has the `WARNING`/`ERROR` lines (never tokens); include them, your OS and git host in a bug report. |
 
 ## Removing it

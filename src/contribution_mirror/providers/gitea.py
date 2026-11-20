@@ -8,6 +8,7 @@ class Gitea(Provider):
     label = "Gitea / Forgejo"
     has_activity = True
     reviews = True
+    issues = True
     work_envs = ("WORK_GITEA_TOKEN",)
     env_vars = ("GITEA_TOKEN", "FORGEJO_TOKEN")
     api_url_env = "WORK_GITEA_API_URL"
@@ -47,3 +48,10 @@ class Gitea(Provider):
                         and parse_iso(when).date() >= since:
                     reviews.append(when)
         return prs, reviews
+
+    def fetch_issues(self, api, login, repos, since):
+        owners = listed_owners(repos)
+        repo_of = lambda i: (i.get("repository") or {}).get("full_name", "")
+        found = api.pages("/repos/issues/search", size_param="limit", size=50, type="issues", state="all",
+                          created_by=login, created_after=f"{since.isoformat()}T00:00:00Z")
+        return [i["created_at"] for i in found if owned_by(repo_of(i), owners)]

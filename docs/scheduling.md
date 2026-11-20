@@ -44,8 +44,10 @@ place. A timer written by hand (as long as it keeps the `contribution-mirror` na
 
 `python3 -I src/mirror.py scheduled` (also available as `scripts/scheduled-sync.sh` / `scripts\scheduled-sync.cmd`):
 
-1. Loads your settings file (`.env`); a problem here is reported as a failure, not ignored.
-2. Waits up to about 5 minutes until the network is reachable: a TCP connection to the mirror's host or `github.com` on port 443 or 22, so it works for https and ssh setups alike.
+1. Goes through every [profile](configuration.md#profiles-several-setups) that has a settings file, one after the other (only one if
+   `MIRROR_PROFILE` or `MIRROR_ENV_FILE` is set). For each it loads the settings file (`.env`); a problem here is reported
+   as a failure for that profile, not ignored, and the next profile still runs.
+2. Waits (once) up to about 5 minutes until the network is reachable: a TCP connection to the mirror's host or `github.com` on port 443 or 22, so it works for https and ssh setups alike.
 3. Runs the sync and shows a desktop notification (optional):
    - **"sync OK"** with the number of new commits and which sources they came from, or "Up to date, no new commits".
    - If the run fails (network unreachable after about 5 minutes, or the push is rejected), a critical notification is shown and an `ERROR` line is added to `mirror.log` (in your log folder). The next run retries.

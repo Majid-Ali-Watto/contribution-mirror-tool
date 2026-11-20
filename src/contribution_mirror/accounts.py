@@ -16,12 +16,13 @@ from .settings import LOG_DIR, REPOS_FILE
 from .state import known_hosts, load_state, preferred_accounts
 
 
-def report(cfg, recheck=False):
-    """[{scope, provider, api, login, source, reviews, projects, error}] for every host of the listed projects."""
+def report(cfg, recheck=False, sources=None):
+    """[{scope, provider, api, login, source, reviews, projects, error}] for every host of the listed projects.
+    `sources` = (local repo paths, URLs) if the caller already has them, else they are read from the project list."""
     log_dir = cfg.log_dir or LOG_DIR
     st = load_state(log_dir)
     providers.remember(known_hosts(st))
-    repos, remotes = select_sources(None, cfg.repos_file or REPOS_FILE, os.path.abspath(cfg.mirror_dir))
+    repos, remotes = sources or select_sources(None, cfg.repos_file or REPOS_FILE, os.path.abspath(cfg.mirror_dir))
     origins = origin_urls(repos)
     by_scope = group_by_scope(repos, remotes, origins)
     creds = Creds(by_scope, cfg.gh_user, None if recheck else preferred_accounts(st))

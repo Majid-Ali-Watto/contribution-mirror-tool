@@ -11,6 +11,7 @@ class GitLab(Provider):
     label = "GitLab"
     has_activity = True
     reviews = True                  # approvals: GitLab has no "submitted review" like GitHub
+    issues = True
     work_envs = ("WORK_GITLAB_TOKEN",)
     env_vars = ("GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN")
     api_url_env = "WORK_GITLAB_API_URL"
@@ -50,12 +51,19 @@ class GitLab(Provider):
                 return None
         return ids
 
-    def fetch(self, api, login, repos, since):
+    def _events(self, api, repos, since, wanted):
+        """{(action, target type): [timestamps]} of your events since a date, in the listed projects."""
         uid = api.get("/user")["id"]
         ids = self.project_ids(api, repos) if repos else None   # GitLab events name the project, not its group
         after = (since - timedelta(days=1)).isoformat()     # the events API's `after` is exclusive
-        def events(action):
-            return [e["created_at"] for e in api.pages(f"/users/{uid}/events", action=action,
-                                                       target_type="merge_request", after=after)
-                    if ids is None or e.get("project_id") in ids]
-        return events("created"), events("approved")
+        return {(action, target): [e["created_at"] for e in api.pages(f"/users/{uid}/events", action=action,
+                                                                      target_type=target, after=after)
+                                   if ids is None or e.get("project_id") in ids]
+                for action, target in wanted}
+
+    def fetch(self, api, login, repos, since):
+        ev = self._events(api, repos, since, [("created", "merge_request"), ("approved", "merge_request")])
+        return ev[("created", "merge_request")], ev[("approved", "merge_request")]
+
+    def fetch_issues(self, api, login, repos, since):
+        return self._events(api, repos, since, [("created", "issue")])[("created", "issue")]

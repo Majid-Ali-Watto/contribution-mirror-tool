@@ -1,4 +1,5 @@
-"""PRs opened and reviews submitted: pick the account(s) per host, choose the scan window, query, and label."""
+"""PRs opened, reviews submitted and issues opened: pick the account(s) per host, choose the scan window, query, and
+label."""
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -20,7 +21,7 @@ def fetch_activity(creds, repos_by_scope, st, mirror_has_commits, full, explicit
     and is fully re-checked next time, the others still count. `explicit` = the user forced an account, so failing
     to use it is a warning rather than a quiet skip. Never raises: commits are mirrored even if an API is down."""
     started = datetime.now(timezone.utc)
-    prs, reviews, done, picked = [], [], {}, False
+    prs, reviews, issues, done, picked = [], [], [], {}, False
     for scope in repos_by_scope:
         try:
             pk = creds.pick(scope)
@@ -32,13 +33,16 @@ def fetch_activity(creds, repos_by_scope, st, mirror_has_commits, full, explicit
         picked = True
         since, how = api_since(st, scope, pk.login, mirror_has_commits, full)
         try:
-            pr_s, rv_s = pk.provider.fetch(pk.api(), pk.login, repos_by_scope[scope], since)
-            pr_s, rv_s = [to_utc_z(t) for t in pr_s], [to_utc_z(t) for t in rv_s]
+            api = pk.api()
+            pr_s, rv_s = pk.provider.fetch(api, pk.login, repos_by_scope[scope], since)
+            is_s = pk.provider.fetch_issues(api, pk.login, repos_by_scope[scope], since)
+            pr_s, rv_s, is_s = ([to_utc_z(t) for t in ts] for ts in (pr_s, rv_s, is_s))
         except Exception as e:  # noqa: BLE001 - see docstring
             warn(f"PR/review fetch for {scope} failed, skipped: {_reason(e)}")
             continue
         prs += pr_s
         reviews += rv_s
+        issues += is_s
         done[scope] = (pk.login, pk.source)
         say(f"PRs/reviews          : {scope} ({pk.provider.label}) as {pk.login} via {pk.source}, {how}"
             + ("" if pk.provider.reviews else " [pull requests only]"))
@@ -51,4 +55,5 @@ def fetch_activity(creds, repos_by_scope, st, mirror_has_commits, full, explicit
                 "use an https credential helper, or set WORK_TOKEN in your .env settings)")
     if not done:
         return [], {}, started
-    return [(f"{API_PREFIX}pull-requests", Counter(prs)), (f"{API_PREFIX}reviews", Counter(reviews))], done, started
+    return [(f"{API_PREFIX}pull-requests", Counter(prs)), (f"{API_PREFIX}reviews", Counter(reviews)),
+            (f"{API_PREFIX}issues", Counter(issues))], done, started

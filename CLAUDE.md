@@ -18,8 +18,11 @@ scripts/sync.sh --dry-run                                      # preview with th
 python3 -I src/mirror.py setup                                 # settings file and project list from the templates
 python3 -I src/mirror.py ui --no-browser                       # the local setup/sync page (prints the link)
 python3 -I src/mirror.py accounts                              # which login each host would use
+python3 -I src/mirror.py doctor                                # check the whole setup, with fixes (reads only)
 python3 -I src/mirror.py schedule status                       # what automatic runs are set up (read from the OS)
 python3 -I src/mirror.py --help                                # core options
+python3 -I src/mirror.py --version                             # the version (`contribution_mirror.__version__`)
+python3 -I src/mirror.py --profile NAME <command>              # any command on profile NAME (MIRROR_PROFILE)
 ```
 
 There is no build step or linter config. `pyproject.toml` is packaging metadata only (for `pipx install .`); the tool has
@@ -56,6 +59,7 @@ a plain command that also works without make.
 | `ui.py`, `ui_static/` | `ui`: local web page (Setup, Sync). JSON API over `App`; runs are `mirror.py sync` child processes. |
 | `scheduled.py`, `schedule.py`, `notify.py` | OS-scheduler entry, scheduler install (systemd/launchd/schtasks; commands from `settings.self_command()`), notifications |
 | `accounts.py` | `accounts`: the login per host, via the same `Creds` as a run (`--json` for the page) |
+| `doctor.py` | `doctor`: read-only checks with a fix each (`Check(status, name, detail, fix)`; `--json` for the page, which adds `check_schedule` itself from `schedule_ops`). Must never write, fetch into a work repo or push |
 | `config.py`, `envfile.py`, `settings.py` | Where the files are (`settings.py`, rules in its docstring), the settings file (parsed, never executed), `setup`; `envfile.update` (with `update_text`; `read` for the values) edits it in place. Constants |
 | `repos.py` | The project list, `repos.json` (paths and URLs in one `"repos"` list; legacy `"remote_repos"` still read). The page's helpers: `read_entries`, `save_entries`, `clean_entries`, `check_entry`, `find_under` |
 | `scan.py`, `gitutil.py` | Fetch/clone in parallel, stream `git log`, count each commit once across repos. Temporary clones go in `<log_dir>/tmp`; `clear_tmp` empties it at the start of each run |
@@ -75,7 +79,11 @@ a plain command that also works without make.
 - **Dedupe is by timestamp string.** Every date must be in one spelling: `gitutil.canonical_date` (UTC is `Z`, since
   git < 2.45 prints `+00:00`) for git output, `timeutil.to_utc_z` for API output. A new date source must use them, or
   every run re-creates commits.
-- **Commits are read with `--branches --tags --remotes`**, not `--all` (that would count stashes).
+- **Commits are read with `--branches --tags --remotes`**, not `--all` (that would count stashes). `gitutil.source_commits`
+  makes two passes: `--author` (yours), then `--grep` for messages naming your email, keeping only commits with a
+  `Co-authored-by: ... <email>` trailer. Messages stay in memory; never log or store them.
+- **Date limits** (`MIRROR_SINCE`/`MIRROR_UNTIL`, `--since`/`--until`) are applied in `cli._run` to every source by the
+  timestamp's own calendar day (`timeutil.in_range`), after the scan and before the compare.
 - **Token trust:** `WORK_TOKEN`, `WORK_<HOST>_TOKEN` and conventional env vars only go to hosts in `KNOWN_HOSTS`,
   `GIT_HOST_PROVIDERS` or with a `WORK_*_API_URL` (`providers.trusted`). A probed host only gets its CLI login and
   credential-helper entry.
@@ -85,11 +93,20 @@ a plain command that also works without make.
 - **Temporary clones** live in `<log_dir>/tmp` (owner-only, never the system temp folder). `clear_tmp` empties it at the start
   of each run, under the run lock, so a killed run leaves nothing behind for long.
 - **Run output is an interface:** the page reads `SUMMARY` and `repo <label>: ...` lines through `report.parse_result`. Labels
-  are `api:pull-requests`, `api:reviews` and `remote:<name>`; keep the formats or update `report.py` and its tests together.
+  are `api:pull-requests`, `api:reviews`, `api:issues` and `remote:<name>`; keep the formats or update `report.py` and its
+  tests together.
 - **PRs/reviews are limited** to the owners of the listed repos (`providers.base.owned_by`); GitLab filters by project
   id. With no listed repos, or an item without repo info, nothing is filtered.
 - **State is per host** (`state.save_state(log_dir, {scope: (login, source)}, started, hosts)`), saved only after the
-  commits are written, and only for hosts whose scan succeeded.
+  commits are written, and only for hosts whose scan succeeded. Per profile too: `state_path` is `api-state-NAME.json`
+  when `MIRROR_PROFILE` is set.
+- **Profiles** (`config.py`): profile NAME's files are `profiles/NAME/.env` and `repos.json` next to the default ones
+  (`profile_paths`); a process works on `MIRROR_PROFILE` (set by `cli.main` from a leading `--profile NAME`). Loading
+  settings writes them into `os.environ`, so code that goes through several profiles in one process (`scheduled`)
+  wraps each in `config.profile_environment(name)`, which restores the environment. Profiles share the log folder and
+  run lock.
+- **Version:** `contribution_mirror.__version__` is the only place it is written (pyproject reads it). Bump it with a
+  `CHANGELOG.md` entry; `tests/test_cli.py` checks the changelog has the current version.
 - **`run_lock` is re-entrant** in one process (`sync` holds it around `cli.run`, which takes it too).
 - **ssh:** parallel work fetches get `BatchMode=yes` unless the user set `GIT_SSH_COMMAND`, `GIT_SSH` or
   `core.sshCommand`. `user_ssh_command(None)` reads only global/system config, never the current folder's repo.
@@ -115,6 +132,10 @@ a plain command that also works without make.
   (DNS rebinding); POSTs need a same-origin `Origin` (if sent) and `Content-Type: application/json`; strict CSP, so
   **no inline scripts or styles** in `ui_static/` and no external resources; token values never go to the page.
 - The page inserts server data with `textContent` only, never `innerHTML`.
+- Tooltips: every control has a `title` in the HTML (a test checks it). `app.js` moves it to `data-tip` and shows its own
+  tooltip on hover, keyboard focus and long press (touch); positioned with CSSOM (`el.style.left`), which the CSP allows.
+- Profile menu: `/api/profile` switches `App.profile`; `App.env_path`/`repos_path` follow it, and `child_env` passes
+  `MIRROR_PROFILE` to runs, accounts and doctor.
 - Themes: colour tokens on `:root` (light), repeated for dark under `@media (prefers-color-scheme: dark)
   { :root:not([data-theme="light"]) }` and `:root[data-theme="dark"]`; add a new colour to all three blocks.
   `theme.js` (not deferred, in `<head>`) sets `data-theme` from `localStorage` before the first paint. New static
@@ -124,7 +145,7 @@ a plain command that also works without make.
 - Runs pass `MIRROR_ENV_FILE` / `MIRROR_REPOS_FILE` to the child, so tests use temporary files. The page reads results
   by parsing the child's output (`SUMMARY`, `repo ...:` lines): keep those formats stable or update `report.parse_result`.
 - `src/` may not contain new web addresses: build loopback URLs from variables (`f"http://{LOOPBACK}:{port}"`).
-- Tabs: Setup, Sync (+ calendar from `--dates-out`), Accounts (`mirror.py accounts --json` child), Schedule
+- Tabs: Setup (+ Check: `mirror.py doctor --json --skip-schedule` child), Sync (+ calendar from `--dates-out`), Accounts (`mirror.py accounts --json` child), Schedule
   (`schedule_ops`), Logs (`report.read_logs` parses `mirror.log*`; the log dir comes from `MIRROR_LOG_DIR` in the shell, then
   the settings file). Tests that read logs must set `MIRROR_LOG_DIR`, or they read the developer's real log folder.
 
@@ -138,8 +159,9 @@ a plain command that also works without make.
 
 ## Adding a git host
 
-One file in `providers/` subclassing `Provider` (`api_base`, `headers`, `whoami`, `score`, `fetch`), registered in
-`providers/__init__.py` (`PROVIDERS`, `KNOWN_HOSTS`). `fetch` must apply `owned_by` and return ISO timestamps. Test it
+One file in `providers/` subclassing `Provider` (`api_base`, `headers`, `whoami`, `score`, `fetch`, and `fetch_issues`
+with `issues = True` if the host lists your issues), registered in `providers/__init__.py` (`PROVIDERS`, `KNOWN_HOSTS`).
+`fetch` and `fetch_issues` must apply `owned_by` and return ISO timestamps. Test it
 against `tests/_server.FakeHost` (see `tests/test_providers.py`) and add it to the `SOURCES`/`MIRRORS` tables in
 `tests/test_cross_host.py`. Document it in `docs/hosts.md`.
 

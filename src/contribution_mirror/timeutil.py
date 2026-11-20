@@ -1,6 +1,6 @@
 """Timestamps from different vendors, normalised to the one form git prints for UTC."""
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 _FRACTION = re.compile(r"\.(\d+)")
 _OFFSET_NO_COLON = re.compile(r"([+-]\d{2})(\d{2})$")
@@ -23,3 +23,18 @@ def parse_iso(value):
 def to_utc_z(value):
     """'YYYY-MM-DDTHH:MM:SSZ' in UTC: exactly how git's %aI prints a UTC date, so re-runs dedupe against the mirror."""
     return parse_iso(value).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_day(text):
+    """'YYYY-MM-DD' -> that date (for MIRROR_SINCE / MIRROR_UNTIL). Raises ValueError with a readable message."""
+    try:
+        return date.fromisoformat(str(text).strip())
+    except ValueError:
+        raise ValueError(f"'{text}' is not a date: use YYYY-MM-DD, e.g. 2025-03-01") from None
+
+
+def in_range(iso, since=None, until=None):
+    """True if the calendar day of timestamp `iso` (in its own time zone, as the graph and the calendar show it) is
+    within [since, until]; `since` / `until` are 'YYYY-MM-DD' strings or None (no limit)."""
+    day = iso[:10]
+    return (not since or day >= since) and (not until or day <= until)

@@ -28,16 +28,18 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import envfile
+from . import doctor, envfile
 from . import repos as repolist
 from . import schedule as scheduler
-from .config import DEFAULT_ENV_FILE, REQUIRED
-from .gitutil import work_env
+from . import __version__
+from .config import DEFAULT_ENV_FILE, REQUIRED, check_profile_name, current_profile, list_profiles, profile_paths
 from .logsetup import redact
+from .push import check_remote
 from .providers import WORK_TOKEN_VARS
 from .remotes import is_url, repo_path
 from .report import parse_result, read_logs
 from .settings import ENV_TEMPLATE, LOG_DIR, REPOS_FILE, self_command
+from .timeutil import parse_day
 
 LOOPBACK = "127.0.0.1"
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui_static")
@@ -51,7 +53,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TOKEN_VARS = WORK_TOKEN_VARS
 # the settings this page edits; everything else in .env (tokens, comments, advanced keys) is left as it is
 FIELDS = ("WORK_EMAIL", "PERSONAL_NAME", "PERSONAL_EMAIL", "EXPECTED_REMOTE", "MIRROR_DIR", "MIRROR_PR_REVIEWS",
-          "MIRROR_CLONE_CACHE")
+          "MIRROR_CLONE_CACHE", "MIRROR_SINCE", "MIRROR_UNTIL")
 MAX_LINES = 5000
 MAX_BODY = 1_000_000
 
@@ -93,31 +95,17 @@ def validate_settings(data):
     if values["MIRROR_PR_REVIEWS"].lower() not in ("", "on", "auto", "off"):
         problems.append("Pull requests and reviews: on or off")
     values["MIRROR_PR_REVIEWS"] = "off" if values["MIRROR_PR_REVIEWS"].lower() == "off" else ""
+    for key, what in (("MIRROR_SINCE", "From"), ("MIRROR_UNTIL", "Until")):
+        if values[key]:
+            try:
+                values[key] = parse_day(values[key]).isoformat()
+            except ValueError as e:
+                problems.append(f"{what}: {e}")
+    if values["MIRROR_SINCE"] and values["MIRROR_UNTIL"] and values["MIRROR_SINCE"] > values["MIRROR_UNTIL"]:
+        problems.append("Dates: 'from' is after 'until'")
     if problems:
         raise BadRequest("; ".join(problems))
     return values
-
-
-def check_remote(remote):
-    """Can your normal git setup reach the mirror repo? (`git ls-remote`, never prompts). Returns (ok, message)."""
-    if not remote:
-        return False, "enter the mirror repo first"
-    if not is_url(remote) and not os.path.exists(os.path.expanduser(remote)):
-        return False, "not a URL, and no such local path"
-    try:
-        r = subprocess.run(["git", "ls-remote", "--heads", "--", remote], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=30, env=work_env(batch_ssh=True),
-                           stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return False, "no answer within 30 s"
-    except OSError as e:
-        return False, f"git could not be started: {e}"
-    if r.returncode == 0:
-        branches = len([l for l in r.stdout.splitlines() if l.strip()])
-        return True, "reachable" + (" (empty repo: the first sync fills it)" if branches == 0 else "")
-    lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
-    return False, redact(" | ".join(lines[-2:]) if lines else f"git exit {r.returncode}") + \
-        " (the push may still work with a token found automatically)"
 
 
 # ---------------------------------------------------------------------------------------------------- runs
@@ -189,9 +177,12 @@ class Job:
 # ---------------------------------------------------------------------------------------------------- the app
 
 class App:
-    """What the page can read and change. Paths are injectable so tests never touch the real config."""
-    def __init__(self, env_path=DEFAULT_ENV_FILE, repos_path=REPOS_FILE, example_env=ENV_TEMPLATE, schedule_ops=None):
-        self.env_path, self.repos_path, self.example_env = env_path, repos_path, example_env
+    """What the page can read and change. Paths are injectable so tests never touch the real config: `env_path` and
+    `repos_path` are the default profile's files; another profile's are in profiles/NAME/ next to them."""
+    def __init__(self, env_path=DEFAULT_ENV_FILE, repos_path=REPOS_FILE, example_env=ENV_TEMPLATE, schedule_ops=None,
+                 profile=None):
+        self.base_env, self.base_repos, self.example_env = env_path, repos_path, example_env
+        self.profile = check_profile_name(current_profile() if profile is None else profile)
         self.job, self.job_lock = None, threading.Lock()
         self.write_lock, self.schedule_lock = threading.Lock(), threading.Lock()
         # (current(), apply(login, daily, time, timezone, say)): the real OS scheduler unless a test passes fakes
@@ -203,10 +194,39 @@ class App:
             self.job.cancel()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    @property
+    def env_path(self):
+        return profile_paths(self.profile, self.base_env, self.base_repos)[0]
+
+    @property
+    def repos_path(self):
+        return profile_paths(self.profile, self.base_env, self.base_repos)[1]
+
+    def profiles(self):
+        """Every profile the page can switch to: the default one, those with a settings file, and the current one."""
+        names = set(list_profiles(self.base_env)) | {"", self.profile}
+        return sorted(names, key=lambda n: (n != "", n.lower()))
+
+    def set_profile(self, data):
+        """Switch the page to another profile (a new name starts empty; saving creates its files)."""
+        try:
+            name = check_profile_name(str((data or {}).get("name", "")) if isinstance(data, dict) else "")
+        except ValueError as e:
+            raise BadRequest(str(e)) from None
+        with self.job_lock:
+            if self.job and self.job.running:
+                raise BadRequest("wait for the run to finish before switching profiles")
+            self.profile = name
+        return self.state()
+
     def child_env(self):
-        """Environment of the runs and checks started from the page: the page's own files, nothing else changed."""
-        return {**os.environ, "MIRROR_ENV_FILE": self.env_path, "MIRROR_REPOS_FILE": self.repos_path,
-                "PYTHONIOENCODING": "utf-8"}
+        """Environment of the runs and checks started from the page: the page's own files and profile."""
+        env = {**os.environ, "MIRROR_ENV_FILE": self.env_path, "MIRROR_REPOS_FILE": self.repos_path,
+               "PYTHONIOENCODING": "utf-8"}
+        env.pop("MIRROR_PROFILE", None)
+        if self.profile:
+            env["MIRROR_PROFILE"] = self.profile             # its own api-state file
+        return env
 
     def log_dir(self):
         """Where runs log: MIRROR_LOG_DIR (shell, then .env), else the default log folder (settings.LOG_DIR)."""
@@ -236,6 +256,9 @@ class App:
             "missing": missing,
             "ready": not missing and bool(entries) and not error,
             "paths": {"env": self.env_path, "repos": self.repos_path},
+            "profile": self.profile,
+            "profiles": self.profiles(),
+            "version": __version__,
             "job": self.job.view(len(self.job.lines)) if self.job else None,
         }
 
@@ -293,6 +316,32 @@ class App:
         if "error" in data:
             raise BadRequest(redact(data["error"]))
         return data
+
+    # ----------------------------------------------------------------------------------------------- doctor
+    def doctor(self):
+        """`mirror.py doctor --json` (a separate process, like a run: it loads the settings into its environment),
+        plus the automatic-runs check made here with this page's scheduler access."""
+        cmd = self_command() + ["doctor", "--json", "--skip-schedule"]
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                               env=self.child_env(), stdin=subprocess.DEVNULL, creationflags=flags)
+        except subprocess.TimeoutExpired:
+            raise BadRequest("the checks took more than 5 minutes") from None
+        lines = [l for l in r.stdout.splitlines() if l.startswith("{")]
+        try:
+            checks = json.loads(lines[-1])["checks"]
+        except (IndexError, ValueError, KeyError):
+            tail = [l for l in (r.stderr or r.stdout).strip().splitlines() if l.strip()][-1:] or [f"exit {r.returncode}"]
+            raise BadRequest(redact(tail[0])) from None
+        if checks and checks[0]["status"] != doctor.FAIL:       # settings readable: the rest of the setup exists
+            try:
+                state = self.schedule_ops[0]()
+                at = next((i for i, c in enumerate(checks) if c["name"] == "Log files"), len(checks))
+                checks.insert(at, doctor.check_schedule(state, self.logs())._asdict())
+            except (scheduler.ScheduleError, OSError, SystemExit) as e:
+                checks.append(doctor.Check(doctor.SKIP, "Automatic runs", redact(e))._asdict())
+        return {"checks": [{k: redact(v) for k, v in c.items()} for c in checks]}
 
     # ----------------------------------------------------------------------------------------------- schedule
     def schedule_state(self):
@@ -432,6 +481,8 @@ def make_handler(app, token, port, launch=None):
                                                           check_remote(str(arg("remote") or "").strip()))),
                     "/api/run": lambda: app.start(arg("mode")),
                     "/api/accounts": lambda: app.accounts(bool(arg("recheck"))),
+                    "/api/doctor": lambda: app.doctor(),
+                    "/api/profile": lambda: app.set_profile(data),
                     "/api/schedule": lambda: app.set_schedule(data),
                     "/api/cancel": lambda: (app.job.cancel() if app.job else None) or {"ok": True},
                 }

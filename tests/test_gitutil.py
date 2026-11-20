@@ -80,6 +80,21 @@ class WhatCountsAsACommit(unittest.TestCase):
         run("stash")
         self.assertEqual(sum(gitutil.source_dates(self.repo, {"me@work.com"}, env=_path.GIT_ENV).values()), 1)
 
+    def commit(self, author, message, date="2026-03-01T10:00:00+00:00"):
+        env = {**_path.GIT_ENV, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": author, "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": author, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        subprocess.run(["git", "-C", self.repo, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty",
+                        "-m", message], check=True, capture_output=True, env=env)
+
+    def test_a_commit_that_names_me_as_co_author_counts_once(self):
+        """GitHub counts a commit for each co-author (pair programming, a squash merge someone else made)."""
+        self.commit("pair@work.com", "pair work\n\nCo-authored-by: Me <ME@work.com>", "2026-03-01T10:00:00+00:00")
+        self.commit("me@work.com", "mine\n\nCo-authored-by: Me <me@work.com>", "2026-03-02T10:00:00+00:00")
+        self.commit("x@work.com", "thanks to <me@work.com> for the idea", "2026-03-03T10:00:00+00:00")   # not a trailer
+        self.commit("x@work.com", "x\n\nCo-authored-by: A <a.me@work.com>", "2026-03-04T10:00:00+00:00")  # lookalike
+        dates = gitutil.source_dates(self.repo, {"me@work.com"}, env=_path.GIT_ENV)
+        self.assertEqual(dates, Counter({"2026-01-01T10:00:00Z": 1, "2026-03-01T10:00:00Z": 1, "2026-03-02T10:00:00Z": 1}))
+
     def test_commits_are_returned_by_hash(self):
         commits = gitutil.source_commits(self.repo, {"me@work.com"}, env=_path.GIT_ENV)
         self.assertEqual(list(commits.values()), ["2026-01-01T10:00:00Z"])

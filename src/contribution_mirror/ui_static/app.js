@@ -63,6 +63,96 @@ function banner(node, text) {
   show(node, !!text);
 }
 
+// ------------------------------------------------------------------------------------------------ tooltips
+// Every control explains itself in its `title`. A browser shows a title only on mouse hover, so the text is moved to
+// data-tip and shown here instead: on hover, on keyboard focus, and on a long press (touch screens). While it is
+// shown, the control is described by it for screen readers. Works for controls the page creates later too.
+const tip = el("div", "tip");
+tip.id = "tip";
+tip.setAttribute("role", "tooltip");
+tip.hidden = true;
+document.body.append(tip);
+let tipFor = null, tipAnchor = null, tipTimer = 0, pressTimer = 0, longPressed = false;
+
+function tipTarget(node) {
+  const t = node instanceof Element ? node.closest("[title], [data-tip]") : null;
+  if (!t || t === document.documentElement) return null;
+  if (t.hasAttribute("title")) {                  // take it over, or the browser would show its own as well
+    if (t.title) t.dataset.tip = t.title;
+    t.removeAttribute("title");
+  }
+  return t.dataset.tip ? t : null;
+}
+
+function showTip(t, described = t) {
+  clearTimeout(tipTimer);
+  if (tipFor && tipFor !== described) tipFor.removeAttribute("aria-describedby");
+  tipFor = described;
+  tipAnchor = t;
+  described.setAttribute("aria-describedby", "tip");
+  tip.textContent = t.dataset.tip;
+  tip.hidden = false;
+  placeTip();
+}
+
+function placeTip() {                              // next to its control, inside the window
+  if (!tipAnchor || tip.hidden) return;
+  const r = tipAnchor.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), vw - w - 8);
+  const top = r.bottom + 8 + h <= vh - 8 ? r.bottom + 8 : Math.max(8, r.top - h - 8);
+  tip.style.left = Math.round(left) + "px";
+  tip.style.top = Math.round(top) + "px";
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  clearTimeout(pressTimer);
+  if (tipFor) tipFor.removeAttribute("aria-describedby");
+  tipFor = tipAnchor = null;
+  tip.hidden = true;
+}
+
+document.addEventListener("pointerover", (ev) => {
+  if (ev.pointerType !== "mouse") return;
+  const t = tipTarget(ev.target);
+  if (!t) return;
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => showTip(t), 400);
+});
+document.addEventListener("pointerout", (ev) => {
+  if (ev.pointerType !== "mouse") return;
+  const t = ev.target instanceof Element ? ev.target.closest("[data-tip]") : null;
+  if (t && !(ev.relatedTarget instanceof Node && t.contains(ev.relatedTarget))) hideTip();
+});
+document.addEventListener("focusin", (ev) => {
+  const t = tipTarget(ev.target);
+  if (t && ev.target.matches(":focus-visible")) showTip(t, ev.target);   // keyboard focus, not a click
+});
+document.addEventListener("focusout", hideTip);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !tip.hidden) hideTip(); });
+// focusing a control may scroll it into view: the tip follows instead of disappearing
+window.addEventListener("scroll", placeTip, { passive: true, capture: true });
+window.addEventListener("resize", placeTip);
+
+// touch: hold a control for half a second to read what it does; that press does not also click it
+document.addEventListener("pointerdown", (ev) => {
+  if (ev.pointerType === "mouse") { hideTip(); return; }
+  const t = tipTarget(ev.target);
+  longPressed = false;
+  if (!tip.hidden) hideTip();
+  if (t) pressTimer = setTimeout(() => { longPressed = true; showTip(t); }, 500);
+});
+for (const type of ["pointerup", "pointercancel", "pointermove"]) {
+  document.addEventListener(type, (ev) => {
+    if (ev.pointerType !== "mouse" && (type !== "pointermove" || !longPressed)) clearTimeout(pressTimer);
+  });
+}
+document.addEventListener("click", (ev) => {
+  if (longPressed) { ev.preventDefault(); ev.stopPropagation(); longPressed = false; }
+}, true);
+document.addEventListener("contextmenu", (ev) => { if (longPressed) ev.preventDefault(); });
+
 // ------------------------------------------------------------------------------------------------ state
 let state = null;
 let entries = [];               // the project list as edited on the page
@@ -78,6 +168,8 @@ async function load() {
     return;
   }
   banner($("#fatal"), "");
+  fillProfiles();
+  $("#version").textContent = state.version ? "v" + state.version : "";
   $("#env-path").textContent = state.paths.env;
   $("#repos-path").textContent = state.paths.repos;
   if (!settingsDirty) fillSettings(state.settings);
@@ -119,6 +211,40 @@ function updateReady() {
 const LABELS = { WORK_EMAIL: "work email", PERSONAL_NAME: "your name", PERSONAL_EMAIL: "personal email",
                  EXPECTED_REMOTE: "mirror repo" };
 const label = (k) => LABELS[k] || k;
+
+// ------------------------------------------------------------------------------------------------ profiles
+const NEW_PROFILE = "__new__";                // the "New profile…" choice (a profile name cannot start with _)
+
+function fillProfiles() {
+  const sel = $("#profile");
+  sel.replaceChildren();
+  for (const name of state.profiles) sel.append(new Option(name || "Default", name, false, name === state.profile));
+  sel.append(new Option("New profile…", NEW_PROFILE));
+}
+
+$("#profile").addEventListener("change", async (ev) => {
+  let name = ev.target.value;
+  if (name === NEW_PROFILE) {
+    name = (window.prompt("Name of the new profile, e.g. the employer (letters, digits, - and _):") || "").trim();
+    if (!name) { fillProfiles(); return; }
+  }
+  if ((settingsDirty || reposDirty) && !window.confirm("Switch profiles and lose the unsaved changes in Setup?")) {
+    fillProfiles();
+    return;
+  }
+  try {
+    state = await api("/api/profile", { name });
+  } catch (e) {
+    banner($("#fatal"), e.message);
+    fillProfiles();
+    return;
+  }
+  setSettingsDirty(false);
+  setReposDirty(false);
+  for (const id of ["#acc-table", "#doc-list"]) show($(id), false);
+  for (const id of ["#acc-state", "#doc-state"]) $(id).textContent = "";
+  await load();
+});
 
 // ------------------------------------------------------------------------------------------------ setup: you
 function fillSettings(s) {
@@ -478,6 +604,44 @@ async function checkAccounts(recheck) {
 }
 $("#acc-check").addEventListener("click", () => checkAccounts(false));
 $("#acc-recheck").addEventListener("click", () => checkAccounts(true));
+
+// ------------------------------------------------------------------------------------------------ check (doctor)
+const CHECK_MARK = { ok: ["ok", "OK"], warn: ["warn", "Warning"], fail: ["err", "Problem"], skip: ["skip", "Not checked"] };
+
+$("#doc-run").addEventListener("click", async () => {
+  const st = $("#doc-state"), list = $("#doc-list"), btn = $("#doc-run");
+  banner($("#doc-error"), "");
+  btn.disabled = true;
+  st.className = "pill run";
+  st.textContent = "Checking…";
+  try {
+    const r = await api("/api/doctor", {});
+    list.replaceChildren();
+    for (const c of r.checks) {
+      const [cls, label] = CHECK_MARK[c.status] || CHECK_MARK.skip;
+      const li = el("li", "check-" + cls);
+      li.append(el("span", "pill " + cls, label));
+      const body = el("div", "what");
+      const head = el("div");
+      head.append(el("strong", "", c.name), document.createTextNode(" " + c.detail));
+      body.append(head);
+      if (c.fix && c.status !== "ok") body.append(el("div", "detail", "Fix: " + c.fix));
+      li.append(body);
+      list.append(li);
+    }
+    show(list, r.checks.length > 0);
+    const fails = r.checks.filter((c) => c.status === "fail").length;
+    const warns = r.checks.filter((c) => c.status === "warn").length;
+    st.className = "pill " + (fails ? "err" : warns ? "warn" : "ok");
+    st.textContent = fails ? `${fails} problem(s)` : warns ? `${warns} warning(s)` : "All good";
+  } catch (e) {
+    banner($("#doc-error"), e.message);
+    st.className = "pill err";
+    st.textContent = "Failed";
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ------------------------------------------------------------------------------------------------ schedule
 const SCHEDULERS = { linux: "systemd user timer", macos: "launchd", windows: "Task Scheduler" };

@@ -17,10 +17,15 @@
       <span class="logo" aria-hidden="true"></span>
       <div>
         <h1>Contribution Mirror</h1>
-        <p class="sub">Work activity dates into your personal graph. Nothing else leaves your machine.</p>
+        <p class="sub">Work activity dates into your personal graph. Nothing else leaves your machine.
+          <span id="version" class="ver"></span></p>
       </div>
     </div>
     <div class="top-right">
+      <label class="profile" title="A profile is one setup: its own settings and projects, e.g. one per employer. The tabs show the chosen profile; automatic runs sync every profile">
+        <span>Profile</span>
+        <select id="profile"></select>
+      </label>
       <div class="theme" role="group" aria-label="Colour theme">
         <button type="button" data-theme-choice="system" aria-pressed="true" title="Colours follow your system's light or dark setting">System</button>
         <button type="button" data-theme-choice="light" aria-pressed="false" title="Always use light colours">Light</button>
@@ -101,6 +106,16 @@
                 <input name="MIRROR_CLONE_CACHE" autocomplete="off" title="Keep the clones of URL projects in this folder between runs, so later runs only fetch new commits. Empty: temporary clones, deleted after each run" placeholder="empty: temporary clones">
                 <span class="help">Keep clones of URL entries between runs (faster for big repos). Keep it private.</span>
               </label>
+              <label class="field">
+                <span class="label">Only dates from</span>
+                <input name="MIRROR_SINCE" type="date" title="Leave out activity before this day, e.g. before you joined. Empty: no limit">
+                <span class="help">Optional, e.g. the day you joined.</span>
+              </label>
+              <label class="field">
+                <span class="label">Only dates until</span>
+                <input name="MIRROR_UNTIL" type="date" title="Leave out activity after this day, e.g. after you left. Empty: no limit">
+                <span class="help">Optional. Dates already in the mirror stay.</span>
+              </label>
             </div>
             <p id="tokens" class="hint"></p>
           </details>
@@ -140,6 +155,20 @@
           <button id="save-repos" class="primary" title="Write the project list (repos.json)">Save projects</button>
           <span id="repos-saved" class="ok-text" hidden>Saved</span>
         </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">3</span> Check</h2>
+          <span id="doc-state" class="pill"></span>
+        </div>
+        <p class="hint">Checks everything a sync depends on and says how to fix what is wrong: your settings and
+          projects, that your commits are found, the mirror repo and folder, your personal email on GitHub, the logins,
+          and the automatic runs. It only reads: nothing is changed or pushed.</p>
+        <div class="actions">
+          <button id="doc-run" class="primary" title="Run every check (reads only; takes a few seconds, it asks git and the hosts)">Check my setup</button>
+        </div>
+        <div id="doc-error" class="banner error" hidden></div>
+        <ul id="doc-list" class="checks" hidden></ul>
       </div>
     </section>
 
@@ -229,7 +258,8 @@
           <span id="sch-state" class="pill"></span>
         </div>
         <p class="hint">Uses your system's own scheduler (<span id="sch-platform"></span>). A scheduled run reads the
-          settings and projects saved in Setup each time it starts, so changing them needs nothing here.</p>
+          settings and projects saved in Setup each time it starts, so changing them needs nothing here. It syncs every
+          profile.</p>
         <div id="sch-not-ready" class="banner warn" hidden>Setup is not complete: scheduled runs will fail until it is.</div>
         <div id="sch-unsupported" class="banner error" hidden></div>
         <form id="sch-form">

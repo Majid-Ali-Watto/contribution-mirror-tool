@@ -35,6 +35,13 @@ scripts/sync.sh --dry-run my-repo     # preview for one folder
 - Running it again is safe: only timestamps not already in the mirror are added.
 - `sync` runs the core with `--apply` and then pushes. The push is skipped (`nothing to push`) when nothing changed, and it refuses to push to any repo other than `EXPECTED_REMOTE`. On the first run it connects the mirror to `EXPECTED_REMOTE` itself.
 
+## Before any command
+
+| Option | What it does |
+| --- | --- |
+| `--version` | Print the version, e.g. `contribution-mirror 1.1.0`. What changed in each version: [CHANGELOG](../CHANGELOG.md). |
+| `--profile NAME` | Work on profile NAME for this command, e.g. `mirror.py --profile acme sync` ([profiles](configuration.md#profiles-several-setups)). |
+
 ## Other commands
 
 | Command | Purpose |
@@ -43,6 +50,7 @@ scripts/sync.sh --dry-run my-repo     # preview for one folder
 | `mirror.py sync [--dry-run] [folder ...]` | mirror and push (above) |
 | `mirror.py scheduled [--startup-delay SECONDS]` | what an OS scheduler runs: wait for the network, sync, notify ([scheduling](scheduling.md)) |
 | `mirror.py schedule install\|uninstall\|status [--time HH:MM] [--no-login] [--no-daily] [--dry-run]` | set up, change or stop automatic runs for this OS ([scheduling](scheduling.md)) |
+| `mirror.py doctor [--json]` | check the whole setup and say how to fix what is wrong; reads only, changes nothing (exit code 1 if a check failed). See [getting started](getting-started.md#checking-the-setup) |
 | `mirror.py accounts [--recheck] [--json]` | which login each host would use for pull requests and reviews ([authentication](authentication.md)) |
 | `mirror.py ui [--port N] [--no-browser]` | the setup and sync page in your browser ([GUI](gui.md)) |
 | `mirror.py <options>` | the core, below (no command word) |
@@ -74,6 +82,7 @@ python3 -I src/mirror.py \
 | `--no-fetch` | Optional. Skip `git fetch` of the work repos and the temporary clones of URL entries (offline / fastest). |
 | `--log-dir` | Optional. Folder for `mirror.log`, `api-state.json`, `mirror.lock` and the temporary clones in `tmp/` (default: your log folder, see [configuration](configuration.md#where-the-files-are)). |
 | `--dates-out` | Optional. Also write the dates per day (already mirrored, and new) to this JSON file; the setup page uses it for its calendar. `sync` takes it too. |
+| `--since`, `--until` | Optional. Only mirror dates on or after / on or before this day (`YYYY-MM-DD`). `MIRROR_SINCE` / `MIRROR_UNTIL` for `sync`. |
 | `--clone-cache` | Optional. Keep the clones of URL entries in this folder and only fetch new commits on later runs (`MIRROR_CLONE_CACHE` for `sync`). |
 
 `-I` (Python's isolated mode) is used so a stray file in the current directory can never shadow the code; `src/mirror.py` adds only its own folder to the import path.

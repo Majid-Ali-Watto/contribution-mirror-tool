@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contribution-mirror"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Copy the timestamps of your work activity into a personal repo, so your contribution graph shows it"
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,6 +19,9 @@ contribution-mirror = "contribution_mirror.cli:main"
 [tool.setuptools]
 package-dir = { "" = "src" }
 packages = ["contribution_mirror", "contribution_mirror.providers"]
+
+[tool.setuptools.dynamic]
+version = { attr = "contribution_mirror.__version__" }
 
 [tool.setuptools.package-data]
 contribution_mirror = ["ui_static/*", "templates/*"]

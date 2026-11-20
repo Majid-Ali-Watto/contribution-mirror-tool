@@ -55,7 +55,8 @@ Plain `KEY=VALUE` lines, one per line. Comments go on their own line (no inline 
 | `WORK_GH_USER` | Force one `gh` account as your GitHub work account. |
 | `WORK_<HOST>_API_URL` | Self-hosted servers whose API is not at the usual place, e.g. `WORK_GITHUB_API_URL=https://github.example.com/api/v3`. Hosts: `GITHUB`, `GITLAB`, `BITBUCKET`, `AZURE_DEVOPS`, `GITEA`. |
 | `GIT_HOST_PROVIDERS` | Tell the tool what a self-hosted server is, e.g. `git.corp.com=gitlab,code.corp.com=gitea`. |
-| `MIRROR_PR_REVIEWS` | `off` mirrors commits only (no PRs and reviews). |
+| `MIRROR_PR_REVIEWS` | `off` mirrors commits only (no pull requests, reviews or issues). |
+| `MIRROR_SINCE`, `MIRROR_UNTIL` | Only mirror dates on or after / on or before a day, `YYYY-MM-DD` (e.g. when you joined or left). Each date is compared by its calendar day in its own time zone, as the graph shows it. Empty: no limit. Dates already in the mirror are never removed. |
 | `PERSONAL_SSH_KEY` | SSH key used **only** for pushing to the mirror (handy for unattended runs without an agent). Any path works, spaces included. |
 | `MIRROR_LOG_DIR` | Where `mirror.log`, `api-state.json`, `mirror.lock` and the temporary clones (`tmp/`) go. Default: your log folder (see [where the files are](#where-the-files-are)). |
 | `MIRROR_CLONE_CACHE` | A folder in which to keep the clones of URL entries between runs, so later runs only fetch new commits (faster for long histories). Default: empty, temporary clones deleted after each run. The cached clones hold the commit metadata of those repos (authors, dates, messages), so keep the folder private. |
@@ -88,6 +89,21 @@ List your projects. **Each entry is either a local clone path or a git URL, in a
 - To add a project, add a line. No code change and no other setup needed: see [authentication](authentication.md).
 - Precedence: `--src`, or folder names passed to `sync`, replace the list. Without a project list and without `--src`, a run stops with an error that says to run `mirror.py setup` or pass `--src`. It never scans other folders by itself.
 - A different file can be used with `--repos-file <path>`.
+
+## Profiles (several setups)
+
+A profile is a separate setup with its own settings file and project list, for example one per employer, or a current
+and a former job. Each profile can push to the same mirror repo or to another one.
+
+- The usual files are the **default** profile. Profile `NAME` keeps its files in `profiles/NAME/` next to them
+  (`profiles/NAME/.env` and `profiles/NAME/repos.json`). A name is up to 40 letters, digits, `-` and `_`.
+- Choose one for a command with `--profile NAME` before the command: `mirror.py --profile acme setup` creates its files,
+  `mirror.py --profile acme sync` syncs it. `MIRROR_PROFILE=acme` in your shell does the same.
+- On the page, the **Profile** menu at the top switches every tab to that profile; **New profile…** adds one (its files are
+  created when you first save).
+- **Automatic runs sync every profile** that has a settings file, one after the other.
+- All profiles share the log folder (one log, one run lock); each keeps its own `api-state-NAME.json`, so their logins
+  do not mix.
 
 ## The mirror folder
 

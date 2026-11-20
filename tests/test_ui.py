@@ -226,6 +226,34 @@ class Settings(Server):
         _, state, _ = self.request("GET", "/api/state")
         self.assertEqual(state["settings"]["PERSONAL_NAME"], '"Quoted"')
 
+    def test_date_limits_are_checked_and_saved(self):
+        status, body, _ = self.request("POST", "/api/settings", self.settings(MIRROR_SINCE="2026-13-01"))
+        self.assertEqual(status, 400)
+        self.assertIn("From:", body["error"])
+        status, body, _ = self.request("POST", "/api/settings", self.settings(MIRROR_SINCE="2026-05-01",
+                                                                              MIRROR_UNTIL="2026-01-01"))
+        self.assertIn("'from' is after 'until'", body["error"])
+        status, state, _ = self.request("POST", "/api/settings", self.settings(MIRROR_SINCE="2025-03-01"))
+        self.assertEqual((status, state["settings"]["MIRROR_SINCE"]), (200, "2025-03-01"))
+
+    def test_profiles_have_their_own_files(self):
+        _, state, _ = self.request("GET", "/api/state")
+        self.assertEqual((state["profile"], state["profiles"]), ("", [""]))
+        self.assertTrue(state["version"])
+        self.request("POST", "/api/settings", self.settings(WORK_EMAIL="default@w.com"))
+        self.assertEqual(self.request("POST", "/api/profile", {"name": "../x"})[0], 400)
+        status, state, _ = self.request("POST", "/api/profile", {"name": "acme"})
+        self.assertEqual((status, state["profile"]), (200, "acme"))
+        self.assertEqual(state["settings"]["WORK_EMAIL"], "")                # a new profile starts empty
+        self.request("POST", "/api/settings", self.settings(WORK_EMAIL="acme@w.com"))
+        acme = os.path.join(os.path.dirname(self.env_path), "profiles", "acme", ".env")
+        self.assertEqual(envfile.read(acme)["WORK_EMAIL"], "acme@w.com")
+        self.assertEqual(envfile.read(self.env_path)["WORK_EMAIL"], "default@w.com")   # untouched
+        self.assertEqual(self.app.child_env()["MIRROR_PROFILE"], "acme")
+        _, state, _ = self.request("POST", "/api/profile", {"name": ""})
+        self.assertEqual((state["settings"]["WORK_EMAIL"], state["profiles"]), ("default@w.com", ["", "acme"]))
+        self.assertNotIn("MIRROR_PROFILE", self.app.child_env())
+
     def test_bad_values_are_explained_and_nothing_is_written(self):
         status, body, _ = self.request("POST", "/api/settings", self.settings(WORK_EMAIL="not-an-email",
                                                                               PERSONAL_EMAIL="", EXPECTED_REMOTE=""))
@@ -323,6 +351,17 @@ class Runs(Server):
         self.assertEqual(view["days"]["existing"], {"2026-01-01": 1, "2026-01-02": 1})
         _, logs, _ = self.request("GET", "/api/logs")                  # the runs appear in the log view
         self.assertEqual([(r["mode"], r["new"]) for r in logs["runs"]], [("dry-run", 2), ("apply", 2), ("apply", 0)])
+
+    def test_check_my_setup_lists_every_check_with_the_pages_own_scheduler(self):
+        self.sched.update(daily=True, time="18:00")
+        status, body, _ = self.request("POST", "/api/doctor", {})
+        self.assertEqual(status, 200, body)
+        got = {c["name"]: c["status"] for c in body["checks"]}
+        self.assertEqual((got["Settings file"], got["Mirror repo"], got["Work email"]), ("ok", "ok", "ok"))
+        self.assertEqual(got["Automatic runs"], "warn")                      # set up, but no sync has run yet
+        names = [c["name"] for c in body["checks"]]
+        self.assertLess(names.index("Automatic runs"), names.index("Log files"))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "mirror")))   # checking changes nothing
 
     def test_accounts_lists_each_host_without_any_token(self):
         subprocess.run(["git", "-C", self.work, "remote", "add", "origin", "git@git.example.invalid:acme/app.git"],

@@ -7,9 +7,9 @@ import sys
 import threading
 from collections import Counter
 
-from . import providers, remotes as remote_urls
+from . import __version__, providers, remotes as remote_urls
 from .activity import fetch_activity
-from .config import repos_path
+from .config import check_profile_name, repos_path
 from .credentials import Creds, explicit_choice
 from .logsetup import close_log, redact, say, setup_log
 from .mirror_repo import ensure_repo, existing_dates, write_commits
@@ -19,10 +19,19 @@ from .runlock import RunLocked, run_lock
 from .scan import clear_tmp, scan_all
 from .settings import LOG_DIR, REPOS_FILE
 from .state import known_hosts, load_state, preferred_accounts, save_state
+from .timeutil import in_range, parse_day
+
+
+def _day(text):
+    try:
+        return parse_day(text).isoformat()
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="mirror.py", description="Mirror contribution timestamps into an empty-commit repo.")
+    p = argparse.ArgumentParser(prog="mirror.py", description="Mirror contribution timestamps into an empty-commit repo. "
+                                f"Version {__version__}; `mirror.py --version` prints it.")
     p.add_argument("--src", nargs="+",
                    help="repo(s) or folders containing repos (searched recursively). "
                         "Default: the exact projects listed in --repos-file")
@@ -42,6 +51,10 @@ def build_parser():
     p.add_argument("--no-fetch", action="store_true",
                    help="do not `git fetch` the work repos and do not scan URL entries (offline / fastest)")
     p.add_argument("--apply", action="store_true", help="actually create commits (default is a dry run)")
+    p.add_argument("--since", type=_day, default=None,
+                   help="only mirror dates on or after this day (YYYY-MM-DD), e.g. when you joined")
+    p.add_argument("--until", type=_day, default=None,
+                   help="only mirror dates on or before this day (YYYY-MM-DD), e.g. when you left")
     p.add_argument("--dates-out", default="",
                    help="also write the dates per day (already mirrored, and new) to this JSON file, for a calendar view")
     p.add_argument("--clone-cache", default="",
@@ -92,7 +105,10 @@ def _run(a):
                                               explicit_choice(a.gh_user))
         per_repo += items
 
-    # 3. what is new
+    # 3. what is new (only dates within the chosen range)
+    if a.since or a.until:
+        per_repo, outside = limit_dates(per_repo, a.since, a.until)
+        say(f"date range           : {a.since or 'any'} to {a.until or 'any'} ({outside} outside, not mirrored)")
     wanted = Counter()
     for _, c in per_repo:
         wanted.update(c)
@@ -116,6 +132,17 @@ def _run(a):
     say(f"created {sum(todo.values())} commits in {mirror}")
     summary(True, n_sources, wanted, existing, todo, by_repo, "created")
     return RunResult(sum(todo.values()), by_repo, dry_run=False)
+
+
+def limit_dates(per_repo, since, until):
+    """(per_repo with only the dates in [since, until], how many were left out). Days are compared in each
+    timestamp's own time zone, like the graph."""
+    out, outside = [], 0
+    for label, c in per_repo:
+        kept = Counter({d: n for d, n in c.items() if in_range(d, since, until)})
+        outside += sum(c.values()) - sum(kept.values())
+        out.append((label, kept))
+    return out, outside
 
 
 def write_days(path, existing, todo):
@@ -146,10 +173,21 @@ def _exit_on_sigterm():
 
 
 def main(argv=None):
-    """Dispatch: `sync`, `scheduled`, `schedule`, `accounts`, `setup`, `ui`, or (no command) the core run."""
+    """Dispatch: `sync`, `scheduled`, `schedule`, `accounts`, `doctor`, `setup`, `ui`, or (no command) the core run."""
     argv = list(sys.argv[1:] if argv is None else argv)
     _console_safe()
     _exit_on_sigterm()
+    if argv[:1] == ["--version"]:
+        print(f"contribution-mirror {__version__}")
+        return 0
+    if argv[:1] == ["--profile"] or (argv and argv[0].startswith("--profile=")):
+        name = argv[0].split("=", 1)[1] if "=" in argv[0] else (argv[1] if len(argv) > 1 else "")
+        argv = argv[1:] if "=" in argv[0] else argv[2:]
+        try:
+            os.environ["MIRROR_PROFILE"] = check_profile_name(name) or ""
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
     command, rest = (argv[0], argv[1:]) if argv else (None, [])
     if command == "sync":
         from . import sync
@@ -163,6 +201,9 @@ def main(argv=None):
     if command == "accounts":
         from . import accounts
         return accounts.main(rest)
+    if command == "doctor":
+        from . import doctor
+        return doctor.main(rest)
     if command == "setup":
         from .config import setup_main
         return setup_main(rest)

@@ -4,14 +4,14 @@ Your **work repos can live on any git host**. Reading commits is plain `git`, so
 Bitbucket, Azure DevOps, Gitea/Forgejo, self-hosted, anything that speaks git. What differs per host is the optional
 extras: the https token fallback, finding your account automatically, and pull request / review timestamps.
 
-| Host | Commits | Pull / merge requests you opened | Reviews | Status |
-| --- | --- | --- | --- | --- |
-| **GitHub** (github.com, Enterprise Server) | yes | yes | every submitted review | **verified live** |
-| **GitLab** (gitlab.com, self-managed) | yes | merge requests opened | merge requests you approved | implemented from the API docs, tested against a simulated server |
-| **Bitbucket Cloud** (bitbucket.org) | yes | pull requests opened | no (the API exposes no review timestamps) | implemented from the API docs, tested against a simulated server |
-| **Azure DevOps** (dev.azure.com) | yes | pull requests opened (in the repos you list) | no | implemented from the API docs, tested against a simulated server |
-| **Gitea / Forgejo / Codeberg** | yes | pull requests opened | reviews submitted | implemented from the API docs, tested against a simulated server |
-| Anything else (Bitbucket Server / Data Center, SourceHut, AWS CodeCommit, Gerrit, plain git) | yes | no | no | commits are always mirrored |
+| Host | Commits | Pull / merge requests you opened | Reviews | Issues you opened | Status |
+| --- | --- | --- | --- | --- | --- |
+| **GitHub** (github.com, Enterprise Server) | yes | yes | every submitted review | yes | **verified live** (issues: tested against a simulated server) |
+| **GitLab** (gitlab.com, self-managed) | yes | merge requests opened | merge requests you approved | yes (listed projects) | implemented from the API docs, tested against a simulated server |
+| **Bitbucket Cloud** (bitbucket.org) | yes | pull requests opened | no (the API exposes no review timestamps) | no | implemented from the API docs, tested against a simulated server |
+| **Azure DevOps** (dev.azure.com) | yes | pull requests opened (in the repos you list) | no | no | implemented from the API docs, tested against a simulated server |
+| **Gitea / Forgejo / Codeberg** | yes | pull requests opened | reviews submitted | yes | implemented from the API docs, tested against a simulated server |
+| Anything else (Bitbucket Server / Data Center, SourceHut, AWS CodeCommit, Gerrit, plain git) | yes | no | no | no | commits are always mirrored |
 
 **What "status" means.** GitHub is the only host I could try with a real account. The others are written from each
 vendor's documented REST API and tested against a local fake server that answers like that API (see

@@ -16,13 +16,18 @@ Your browser opens on the page. The terminal shows the link too; it is the key t
 The **System / Light / Dark** switch at the top chooses the colours. System (the default) follows your operating
 system; a choice is remembered by this browser only.
 
-Not sure what a button or field does? Point at it: every tab, button, field and option shows a short explanation.
+Not sure what a button or field does? Point at it, move to it with the keyboard (Tab), or on a touch screen hold it for half
+a second: every tab, button, field and option shows a short explanation, which screen readers read too.
+
+The **Profile** menu at the top chooses which setup the tabs show, e.g. one per employer; **New profile…** adds one
+([profiles](configuration.md#profiles-several-setups)). The version is shown under the title.
 
 ## Setup
 
 1. **You.** Your work email(s), your name and personal email for the mirror commits, and the URL of your mirror repo.
    **Check** asks the repo (with your normal git setup) whether it can be reached. **More options:** the mirror folder,
-   pull requests and reviews on or off, and the clone cache. **Save** writes your settings file (`.env`, [where it is](configuration.md#where-the-files-are)):
+   pull requests, reviews and issues on or off, the clone cache, and **only dates from / until** (e.g. when you joined
+   or left). **Save** writes your settings file (`.env`, [where it is](configuration.md#where-the-files-are)):
    - on the first save it starts from the template (`templates/env.example`), so the explanations stay in the file;
    - after that only those settings' lines are changed: tokens, comments and advanced options are kept as they are;
    - the file is readable only by you (mode 600 on Linux and macOS).
@@ -33,6 +38,9 @@ Not sure what a button or field does? Point at it: every tab, button, field and 
    ([configuration](configuration.md#the-project-list-reposjson)). Each entry shows whether it is usable. **Find repos in a folder**
    lists the git repos under a folder so you can add them in one go. **Save projects** writes the project list; a
    file in the older format (`remote_repos`) is converted to the single list.
+3. **Check.** **Check my setup** runs `mirror.py doctor` and lists every check as OK, Warning, Problem or Not checked,
+   each problem with how to fix it ([what is checked](getting-started.md#checking-the-setup)). It only reads: nothing
+   is changed or pushed.
 
 ## Sync
 
@@ -62,7 +70,7 @@ date near midnight on the neighbouring day.
 ## Schedule
 
 Turn the run **at login** and the run **every day at** a time on or off, and change the time (on Linux also the time
-zone). **Apply** changes the system scheduler at once; **Turn all off** removes every automatic run. What the tab shows
+zone). Each automatic run syncs every profile. **Apply** changes the system scheduler at once; **Turn all off** removes every automatic run. What the tab shows
 is read from the scheduler itself, so it is also right after `mirror.py schedule ...` or `make schedule...` on the
 command line. Scheduled runs read the settings and projects saved on the Setup tab each time they start. More in
 [scheduling](scheduling.md).

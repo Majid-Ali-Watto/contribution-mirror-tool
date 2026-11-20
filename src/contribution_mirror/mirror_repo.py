@@ -97,11 +97,11 @@ class NotAMirror(RuntimeError):
     """The mirror folder holds a repo this tool did not create: writing to it could replace real work."""
 
 
-def _is_marked(mirror):
+def is_marked(mirror):
     return git(mirror, "config", "--bool", "--get", MARKER, check=False).strip() == "true"
 
 
-def _only_mirror_commits(mirror):
+def only_mirror_commits(mirror):
     """True if every commit on every local branch is one this tool writes (empty tree, message MSG), or there are
     none: an older mirror, from before the marker existed, or a fresh clone of one."""
     empty_tree = subprocess.run(["git", "-C", mirror, "hash-object", "-t", "tree", "--stdin"], input="",
@@ -122,9 +122,9 @@ def ensure_repo(mirror):
         git(mirror, "init", "-b", "main")
         git(mirror, "config", MARKER, "true")
         return
-    if _is_marked(mirror):
+    if is_marked(mirror):
         return
-    if not _only_mirror_commits(mirror):
+    if not only_mirror_commits(mirror):
         raise NotAMirror(f"refusing to write to {mirror}: it has commits this tool did not make, so it is not your "
                          f"contribution mirror. Set MIRROR_DIR to a new folder, or, if it really is your mirror (e.g. "
                          f"a clone of a repo that started with a README), mark it: "

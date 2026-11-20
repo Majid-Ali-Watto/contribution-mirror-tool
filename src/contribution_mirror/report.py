@@ -12,7 +12,8 @@ SUMMARY_RE = re.compile(r"^SUMMARY mode=(\S+) repos=(\d+) matching=(\d+) already
                         r"(?:would_create|created)=(\d+)")
 SOURCE_RE = re.compile(r"^repo (.+): matching=(\d+) already_mirrored=(\d+) new=(\d+)$")
 LOG_LINE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ (\w+) (.*)$")
-API_NAMES = {f"{API_PREFIX}pull-requests": "Pull requests", f"{API_PREFIX}reviews": "Reviews"}
+API_NAMES = {f"{API_PREFIX}pull-requests": "Pull requests", f"{API_PREFIX}reviews": "Reviews",
+             f"{API_PREFIX}issues": "Issues opened"}
 
 
 @dataclass

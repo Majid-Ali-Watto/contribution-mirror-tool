@@ -39,6 +39,10 @@ def core_args(cfg, folders=()):
         args += ["--clone-cache", cfg.clone_cache]
     if cfg.repos_file:
         args += ["--repos-file", cfg.repos_file]
+    if cfg.since:
+        args += ["--since", cfg.since]
+    if cfg.until:
+        args += ["--until", cfg.until]
     if folders:
         args += ["--src", *folders]
     return args
