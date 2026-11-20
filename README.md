@@ -179,7 +179,9 @@ make test                                     # Linux / macOS (or tests/run.sh)
 python -m unittest discover -s tests          # any system (Windows: py -3 -m unittest discover -s tests)
 ```
 
-Offline: needs only Python and git, touches no network and no real config. Before contributing, read
+Offline: needs only Python and git, touches no network and no real config. CI runs them on Linux, macOS and Windows
+with Python 3.9 and 3.13 when code changes; a change to text only (Markdown, the docs' images, LICENSE) runs just the
+documentation checks. Before contributing, read
 [CLAUDE.md](CLAUDE.md): the rules the tests enforce (standard library only, Python 3.9+, no tokens or new web
 addresses in the code) and the parts that are easy to get wrong.
 

@@ -25,6 +25,11 @@ python3 -I src/mirror.py --version                             # the version (`c
 python3 -I src/mirror.py --profile NAME <command>              # any command on profile NAME (MIRROR_PROFILE)
 ```
 
+CI (`.github/workflows/`): `tests.yml` runs the full matrix for any change except text only (`**.md`, `docs/assets/`,
+`LICENSE`, `.gitignore`, `Makefile`); `docs.yml` runs `test_repo_files.py` and the CHANGELOG version test for text
+changes. A file that tests read and that is on the text-only list needs its test added to `docs.yml`, or its changes go
+untested.
+
 There is no build step or linter config. `pyproject.toml` is packaging metadata only (for `pipx install .`); the tool has
 no dependencies. The `Makefile` only wraps the commands above (Windows users run them directly), so every target must stay
 a plain command that also works without make.

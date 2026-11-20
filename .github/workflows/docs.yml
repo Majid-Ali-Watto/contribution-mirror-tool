@@ -1,0 +1,28 @@
+name: docs
+
+# Text-only changes skip the full test matrix (tests.yml), but some tests are about the text itself: relative links
+# in README.md, CLAUDE.md and docs/ resolve, no real home path or private name is published, LICENSE is the standard
+# MIT text, and CHANGELOG.md has an entry for the current version. Those run here, once, in a few seconds.
+on:
+  push:
+    paths:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    paths:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Links, published text and LICENSE
+        run: uv run --python 3.13 --no-project python -W error::ResourceWarning -m unittest discover -s tests -p "test_repo_files.py" -v
+      - name: CHANGELOG has the current version
+        run: uv run --python 3.13 --no-project python -W error::ResourceWarning -m unittest discover -s tests -p "test_cli.py" -k test_version -v

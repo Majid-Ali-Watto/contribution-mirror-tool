@@ -3,9 +3,28 @@ name: tests
 # The suite is offline and needs only Python and git, so it runs unchanged on all three operating systems.
 # Python is installed with uv, which has every version for every runner image (setup-python has no Python 3.9
 # build for the newest Ubuntu images).
+#
+# It runs only when something the code or the tests depend on changes. A push or pull request that only touches
+# text (Markdown, the docs' images, LICENSE, .gitignore, the Makefile, which CI does not use) skips it; docs.yml
+# checks those changes instead. A change that mixes both runs both. Run it by hand from the Actions tab at any time.
 on:
   push:
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/assets/**"
+      - "!LICENSE"
+      - "!.gitignore"
+      - "!Makefile"
   pull_request:
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/assets/**"
+      - "!LICENSE"
+      - "!.gitignore"
+      - "!Makefile"
+  workflow_dispatch:
 
 jobs:
   test:
