@@ -36,20 +36,26 @@ def _git(mirror, *args, env=None):
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
+def sh_quote(value):
+    """`value` as one single-quoted shell word: git runs GIT_SSH_COMMAND through sh (its own sh on Windows), where
+    nothing inside single quotes is expanded ($, backticks, double quotes), and a ' is written as '\\''."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 def _push_env(ssh_key):
     """Your own git setup, plus (only if configured) one specific ssh key for this push."""
     env = work_env()
     if ssh_key:
-        key = ssh_key.replace("\\", "/")                      # git runs this through its own sh, even on Windows
-        env["GIT_SSH_COMMAND"] = f'ssh -i "{key}" -o IdentitiesOnly=yes -o BatchMode=yes'
+        key = ssh_key.replace("\\", "/")                      # forward slashes work for ssh on every system
+        env["GIT_SSH_COMMAND"] = f"ssh -i {sh_quote(key)} -o IdentitiesOnly=yes -o BatchMode=yes"
     return env
 
 
 def _token_owns(provider, host, tok, owner):
-    """True if `tok` belongs to the account that owns the mirror (checked on hosts where a personal repo's owner is
-    the login), so the fallback never pushes with a work account that merely has access. A gh CLI token asked for by
-    the owner's name is that account already."""
-    if provider.name not in OWNER_IS_LOGIN or tok.source.lower() == f"gh:{owner}".lower():
+    """True if `tok` belongs to the account that owns the mirror, so the fallback never pushes with a work account
+    that merely has access. Only asked on hosts where a personal repo's owner is the login (see _mirror_tokens). A gh
+    CLI token asked for by the owner's name is that account already."""
+    if tok.source.lower() == f"gh:{owner}".lower():
         return True
     try:
         login = provider.whoami(Api(provider.api_url(host), provider.headers(tok)))
@@ -59,12 +65,15 @@ def _token_owns(provider, host, tok, owner):
 
 
 def _mirror_tokens(cfg):
-    """(provider, host, owner, tokens) for the personal repo: the gh CLI account named like the owner, conventional
-    variables (only for a host whose kind is known), the git credential helper for that host."""
+    """(provider, host, owner, tokens) for the personal repo. Where the owner is the login (GitHub, GitLab, Gitea):
+    the gh CLI account named like the owner, conventional variables (only for a host whose kind is known) and the git
+    credential helper, each checked against the owner before use. Elsewhere a token's account cannot be checked, so
+    only the git credential helper's entry for that host is used: what a plain `git push` would use anyway."""
     host = real_host(cfg.expected_remote)
     provider = provider_for(host)
     owner = repo_path(cfg.expected_remote).split("/")[0]
-    tokens = list(provider.cli_tokens(host, owner)) + env_tokens(provider, host)
+    tokens = list(provider.cli_tokens(host, owner)) + env_tokens(provider, host) if provider.name in OWNER_IS_LOGIN \
+        else []
     helper = helper_token(host)
     tokens += [helper] if helper else []
     return provider, host, owner, tokens
@@ -76,7 +85,7 @@ def _with_token(cfg, args, timeout):
     provider, host, owner, tokens = _mirror_tokens(cfg)
     last = "no token found (log in with the host's CLI, or set up ssh or an https credential helper)"
     for tok in tokens:
-        if not _token_owns(provider, host, tok, owner):
+        if provider.name in OWNER_IS_LOGIN and not _token_owns(provider, host, tok, owner):
             last = f"the token from {tok.source} is not the account that owns '{owner}', not used"
             continue
         env = token_env(provider.git_header(tok), host_of(host))

@@ -10,7 +10,7 @@ It is part of the tool (standard library only, nothing to install) and runs only
 | --- | --- |
 | `python3 -I src/mirror.py ui` (or `make ui`) | `py -3 -I src\mirror.py ui` |
 
-Your browser opens on the page. The terminal shows the link too (it contains a one-time key, so do not share it). Press
+Your browser opens on the page. The terminal shows the link too; it is the key to the page, so do not share it. Press
 **Ctrl+C** in the terminal to stop. Options: `--port N` (default: any free port), `--no-browser` (only print the link).
 
 The **System / Light / Dark** switch at the top chooses the colours. System (the default) follows your operating
@@ -20,16 +20,16 @@ system; a choice is remembered by this browser only.
 
 1. **You.** Your work email(s), your name and personal email for the mirror commits, and the URL of your mirror repo.
    **Check** asks the repo (with your normal git setup) whether it can be reached. **More options:** the mirror folder,
-   pull requests and reviews on or off, and the clone cache. **Save** writes `config/.env`:
-   - on the first save it starts from `config/.env.example`, so the explanations stay in the file;
+   pull requests and reviews on or off, and the clone cache. **Save** writes your settings file (`.env`, [where it is](configuration.md#where-the-files-are)):
+   - on the first save it starts from the template (`templates/env.example`), so the explanations stay in the file;
    - after that only those settings' lines are changed: tokens, comments and advanced options are kept as they are;
    - the file is readable only by you (mode 600 on Linux and macOS).
 
    Token values are never shown on the page, only which `WORK_*TOKEN` variables are set. A setting also set in your
    shell is flagged, because the shell wins over the file.
-2. **Projects.** Your work repos, as local clone paths or git URLs of any host, the same list as `config/repos.json`
-   ([configuration](configuration.md#configreposjson)). Each entry shows whether it is usable. **Find repos in a folder**
-   lists the git repos under a folder so you can add them in one go. **Save projects** writes `config/repos.json`; a
+2. **Projects.** Your work repos, as local clone paths or git URLs of any host, the same list as your project list (`repos.json`)
+   ([configuration](configuration.md#the-project-list-reposjson)). Each entry shows whether it is usable. **Find repos in a folder**
+   lists the git repos under a folder so you can add them in one go. **Save projects** writes the project list; a
    file in the older format (`remote_repos`) is converted to the single list.
 
 ## Sync
@@ -67,7 +67,7 @@ command line. Scheduled runs read the settings and projects saved on the Setup t
 
 ## Logs
 
-A bar per sync (new commits created) from `logs/mirror.log`, and the log itself, newest first, with a filter for
+A bar per sync (new commits created) from your `mirror.log`, and the log itself, newest first, with a filter for
 warnings and errors. Tokens inside URLs are shown as `***`. See [logs](logs.md).
 
 ## Security
@@ -75,11 +75,17 @@ warnings and errors. Tokens inside URLs are shown as `***`. See [logs](logs.md).
 The page can change your settings and push to your mirror, so it is locked down:
 
 - The server listens on `127.0.0.1` only: other computers cannot reach it.
-- Every request must carry a random key created when the page starts. The key is in the link's `#` part, which the
-  browser never sends to any server or in a referrer; the page removes it from the address bar.
+- Every request must carry a random session key, created when the page starts. The key is in the link's `#` part, which
+  the browser never sends to any server or in a referrer; the page removes it from the address bar.
+- The browser is not opened with that key. A program's arguments can be read by other users of the computer, so the browser
+  gets a one-time launch code (`#c=`) instead. The page trades that code for the session key once. The link printed in the
+  terminal carries the session key (`#t=`) and works as before.
+- If the launch code is used a second time, someone else has it too: the page stops and a warning is printed. Start the
+  page again with `mirror.py ui`.
 - A request must name this server (`127.0.0.1:<port>` or `localhost:<port>`) as its host, so another website cannot
   reach it through a DNS trick. Changes must come from the page itself, as JSON, so another site cannot submit a form
   to it.
 - The page loads nothing from the internet (no fonts, scripts or images from elsewhere), and a content security policy
   forbids it. It cannot be shown inside another site's frame.
 - Token values are never sent to the page, and any token inside a URL is shown as `***` in the output.
+- A malformed request (a bad `Content-Length`, a value that should be a number but is not) gets a `400` answer.

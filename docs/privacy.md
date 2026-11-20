@@ -1,6 +1,6 @@
 # Privacy
 
-*Last updated: 2026-11-17.*
+*Last updated: 2026-11-20.*
 
 **Short version: this tool runs on your own computer, and the developer never receives any data from it.** There is no
 account, no telemetry, no analytics and no server run by the developer. Everything below describes what the software
@@ -19,7 +19,7 @@ git hosts it supports (`api.github.com`, `api.bitbucket.org`, `dev.azure.com`), 
 | --- | --- | --- |
 | The **author email, author date and hash** of commits in the repos you list | to find your work activity (the hash only to count a commit that is in two listed repos once) | held in memory; only the dates are written to your mirror |
 | The **timestamps** of pull / merge requests you opened and reviews you made (from your git host's API) | to include them in the mirror | only the timestamps are written to your mirror |
-| Your settings in `config/.env` and `config/repos.json` | to know who you are and which projects to scan | stay in those files, on your computer (git-ignored) |
+| Your settings file (`.env`) and project list (`repos.json`) | to know who you are and which projects to scan | stay in those files, on your computer, private to you ([where they are](configuration.md#where-the-files-are)) |
 | Tokens and logins already on your computer: environment variables, the `gh` / `glab` / `az` command line tools, your git credential helper | to talk to your git host | used in memory for the request; **never printed, logged or written to disk** by the tool |
 
 It does **not** read or copy source code, file names or paths, commit messages, commit hashes, repository names or pull
@@ -35,13 +35,22 @@ except what a sync sends anyway. Token values are never shown on it. Details: [G
 
 - **Your mirror repo** (on the host you choose): empty commits with the message `mirror`, your chosen name and email, and
   the original dates. This is the only data that leaves your computer on purpose, and it goes to *your own* repository.
-- **Local files** in the project folder: `logs/mirror.log` (a summary line per run, warnings, and the names of your repo
-  folders; never tokens) and `logs/api-state.json` (per host: your account name, where its login came from, and the time of the last run; and
-  what kind of server each self-hosted host is).
-- **Temporary clones** of repos you listed by URL only (commit metadata, no file contents), deleted when the scan ends;
-  or, only if you set `MIRROR_CLONE_CACHE`, kept in that folder between runs.
+- **Local files** in your log folder ([where it is](configuration.md#where-the-files-are)): `mirror.log` (a summary line per run,
+  warnings, and the names of your repo folders; never tokens) and `api-state.json` (per host: your account name, where its
+  login came from, and the time of the last run; and what kind of server each self-hosted host is). They are owner-only
+  (mode 600 on Linux and macOS), like your settings file and project list, and so are the rotated copies of the log.
+- **Temporary clones** of repos you listed by URL, in the `tmp/` folder of your log folder: commit metadata only, deleted
+  when the scan ends, and emptied by the next run if a run was stopped before that. A host that ignores the tree-less filter
+  sends file contents into them while they exist. Only if you set `MIRROR_CLONE_CACHE`, the clones are kept in that folder
+  between runs instead.
 
-Delete `logs/` at any time; it is rebuilt. To remove the mirrored data, delete the mirror repo on your git host.
+Delete your log folder at any time; it is rebuilt. To remove the mirrored data, delete the mirror repo on your git host.
+
+## Credentials in output
+
+Everything shown on screen, written to the log or sent in a notification goes through a filter first. In an `http(s)` URL the
+whole user part (`user:token@`) is replaced by `***`. In other URLs (ssh and the like) only a password is replaced, and the
+value of an `Authorization:` header is replaced too. Tokens are not written to the state file either.
 
 ## Who the tool talks to
 
@@ -67,8 +76,8 @@ the tool makes with your own credentials.
 
 - The commit **timestamps** of work done for an employer can be information they consider confidential. Check your
   employer's policy before mirroring them. That decision is yours.
-- Keep `config/.env` private (`chmod 600` on Linux and macOS). If you put a token in it, anyone who can read the file can use
-  that token.
+- Keep your settings file (`.env`) private. `mirror.py setup` creates it owner-only (mode 600 on Linux and macOS). If you put a
+  token in it, anyone who can read the file can use that token.
 - Push the mirror with **personal** credentials, not credentials managed by an employer.
 
 ## Contact

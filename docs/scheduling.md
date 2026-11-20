@@ -15,7 +15,8 @@ python3 -I src/mirror.py schedule uninstall            # stop all automatic runs
 
 (Windows: `py -3 -I src\mirror.py schedule ...`. With make: `make schedule TIME=14:00`, `make schedule-login`,
 `make schedule-daily TIME=09:30`, `make schedule-off`, `make schedule-status`.) On Linux, `--timezone Europe/London` sets
-the zone of the daily time.
+the zone of the daily time. From an installed copy (see [usage](usage.md#installing-optional)), write `contribution-mirror schedule ...`
+instead; the scheduler then starts that copy.
 
 **The page, the command and `make` always agree**, because there is no separate record of what is set up: the scheduler
 itself is read back (the timer file on Linux, the agents on macOS, the tasks on Windows). Running `install` again with
@@ -25,8 +26,8 @@ other options changes only what differs:
 - Changing the **time** updates the daily run only; the login run is not reloaded, so on macOS it does not fire
   straight away. On Linux the timer is restarted to pick up the new time; if the new time already passed today and
   today's run has not happened yet, systemd runs it once right away (`Persistent=true`), which is harmless.
-- **Settings and projects are not part of the schedule.** Every scheduled run reads `config/.env` and
-  `config/repos.json` when it starts (the same files the setup page saves), so a change there applies to the next run
+- **Settings and projects are not part of the schedule.** Every scheduled run reads your settings file (`.env`) and
+  project list (`repos.json`) when it starts (the same files the setup page saves), so a change there applies to the next run
   without reinstalling anything.
 
 | System | Scheduler | What is created |
@@ -43,17 +44,17 @@ place. A timer written by hand (as long as it keeps the `contribution-mirror` na
 
 `python3 -I src/mirror.py scheduled` (also available as `scripts/scheduled-sync.sh` / `scripts\scheduled-sync.cmd`):
 
-1. Loads `config/.env` (a problem here is reported as a failure, not ignored).
+1. Loads your settings file (`.env`); a problem here is reported as a failure, not ignored.
 2. Waits up to about 5 minutes until the network is reachable: a TCP connection to the mirror's host or `github.com` on port 443 or 22, so it works for https and ssh setups alike.
 3. Runs the sync and shows a desktop notification (optional):
    - **"sync OK"** with the number of new commits and which sources they came from, or "Up to date, no new commits".
-   - If the run fails (network unreachable after about 5 minutes, or the push is rejected), a critical notification is shown and an `ERROR` line is added to `logs/mirror.log`. The next run retries.
+   - If the run fails (network unreachable after about 5 minutes, or the push is rejected), a critical notification is shown and an `ERROR` line is added to `mirror.log` (in your log folder). The next run retries.
 
-Warnings (a fetch that failed, a PR/review lookup that was skipped) do not fail the run: they are written to `logs/mirror.log` as `WARNING` lines. See [logs](logs.md).
+Warnings (a fetch that failed, a PR/review lookup that was skipped) do not fail the run: they are written to `mirror.log` as `WARNING` lines. See [logs](logs.md).
 
 ## Credentials for unattended runs
 
-Git never prompts, so the run needs credentials that work without typing: an ssh key without a passphrase or a running agent, or an https credential helper. If a run starts while another one is still going (a manual `sync`, or the login and daily runs together), it stops straight away and says so; that is not reported as a failure. If `PERSONAL_SSH_KEY` is set in `config/.env`, the push (and only the push) uses that key. If your credentials live in the system keyring, the scheduled run only works while you are logged in, which is when the keyring is unlocked; check `logs/mirror.log` for a `WARNING` after your first reboot. More in [authentication](authentication.md).
+Git never prompts, so the run needs credentials that work without typing: an ssh key without a passphrase or a running agent, or an https credential helper. If a run starts while another one is still going (a manual `sync`, or the login and daily runs together), it stops straight away and says so; that is not reported as a failure. If `PERSONAL_SSH_KEY` is set in your settings file, the push (and only the push) uses that key. If your credentials live in the system keyring, the scheduled run only works while you are logged in, which is when the keyring is unlocked; check `mirror.log` for a `WARNING` after your first reboot. More in [authentication](authentication.md).
 
 ## systemd by hand (Linux)
 

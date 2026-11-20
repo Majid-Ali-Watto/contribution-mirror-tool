@@ -2,18 +2,21 @@
 import argparse
 import json
 import os
+import signal
 import sys
+import threading
 from collections import Counter
 
-from . import providers
+from . import providers, remotes as remote_urls
 from .activity import fetch_activity
+from .config import repos_path
 from .credentials import Creds, explicit_choice
 from .logsetup import close_log, redact, say, setup_log
 from .mirror_repo import ensure_repo, existing_dates, write_commits
 from .report import RunResult, attribute, print_totals, summary
 from .repos import ReposFileError, group_by_scope, origin_urls, select_sources
 from .runlock import RunLocked, run_lock
-from .scan import scan_all
+from .scan import clear_tmp, scan_all
 from .settings import LOG_DIR, REPOS_FILE
 from .state import known_hosts, load_state, preferred_accounts, save_state
 
@@ -22,11 +25,10 @@ def build_parser():
     p = argparse.ArgumentParser(prog="mirror.py", description="Mirror contribution timestamps into an empty-commit repo.")
     p.add_argument("--src", nargs="+",
                    help="repo(s) or folders containing repos (searched recursively). "
-                        "Default: the exact projects listed in --repos-file, or if that file is missing, "
-                        "all sibling folders of the project folder")
-    p.add_argument("--repos-file", default=REPOS_FILE,
+                        "Default: the exact projects listed in --repos-file")
+    p.add_argument("--repos-file", default=None,
                    help="JSON file {\"repos\": [paths or URLs]} of projects to scan, without searching deeper "
-                        "(default: config/repos.json)")
+                        f"(default: {REPOS_FILE})")
     p.add_argument("--work-email", nargs="+", required=True, help="your author email(s) in work repos")
     p.add_argument("--mirror", required=True, help="path of the personal mirror repo (created if missing)")
     p.add_argument("--name", required=True, help="author name for mirror commits")
@@ -46,8 +48,8 @@ def build_parser():
                    help="keep the clones of URL entries in this folder and only fetch new commits on later runs "
                         "(default: temporary clones, deleted after each run)")
     p.add_argument("--log-dir", default=LOG_DIR,
-                   help="folder for mirror.log (rotates at 5 MB, keeps 10 old files) and api-state.json; "
-                        "default: logs/ in the project folder")
+                   help="folder for mirror.log (rotates at 5 MB, keeps 10 old files), api-state.json and the "
+                        f"temporary clones (default: {LOG_DIR})")
     return p
 
 
@@ -65,11 +67,13 @@ def run(argv=None):
 def _run(a):
     mirror = os.path.abspath(a.mirror)
     emails = {e.lower() for e in a.work_email}
+    providers.reset()                 # every run starts from the saved state, never from an earlier run in this process
+    remote_urls.reset()
 
     # 1. what to scan, and who we are on GitHub
     st = load_state(a.log_dir)
     providers.remember(known_hosts(st))
-    repos, remotes = select_sources(a.src, a.repos_file, mirror)
+    repos, remotes = select_sources(a.src, a.repos_file or repos_path(), mirror)
     repos_by_scope = group_by_scope(repos, remotes, origin_urls(repos))
     # the account chosen last time is reused if it still works, unless a full re-scan was asked for
     creds = Creds(repos_by_scope, a.gh_user, None if a.full_api else preferred_accounts(st))
@@ -78,7 +82,9 @@ def _run(a):
     n_sources = len(repos) + len(remotes)
 
     # 2. commit dates from the work repos, the mirror's current content, then PRs and reviews
-    per_repo = scan_all(repos, remotes, emails, creds, a.no_fetch, a.clone_cache or None)
+    tmp_root = os.path.join(a.log_dir, "tmp")
+    clear_tmp(tmp_root)               # removes what a killed run left behind (safe: we hold the run lock)
+    per_repo = scan_all(repos, remotes, emails, creds, a.no_fetch, a.clone_cache or None, tmp_root)
     existing = existing_dates(mirror)
     done, started = {}, None
     if not a.no_api:
@@ -109,7 +115,6 @@ def _run(a):
         save_state(a.log_dir, done, started, providers.probed())
     say(f"created {sum(todo.values())} commits in {mirror}")
     summary(True, n_sources, wanted, existing, todo, by_repo, "created")
-    print("Review with `git log`, then add YOUR PERSONAL remote and push yourself.")
     return RunResult(sum(todo.values()), by_repo, dry_run=False)
 
 
@@ -133,10 +138,18 @@ def _console_safe():
             stream.reconfigure(errors="replace")
 
 
+def _exit_on_sigterm():
+    """SIGTERM (the page's Cancel, a scheduler stopping the job) ends the process like Ctrl+C would: through every
+    `finally`, so temporary clones are deleted and the log is closed. Python's default would just stop."""
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
+
+
 def main(argv=None):
-    """Dispatch: `sync`, `scheduled`, `schedule`, `accounts`, `ui`, or (no command) the core run."""
+    """Dispatch: `sync`, `scheduled`, `schedule`, `accounts`, `setup`, `ui`, or (no command) the core run."""
     argv = list(sys.argv[1:] if argv is None else argv)
     _console_safe()
+    _exit_on_sigterm()
     command, rest = (argv[0], argv[1:]) if argv else (None, [])
     if command == "sync":
         from . import sync
@@ -150,12 +163,17 @@ def main(argv=None):
     if command == "accounts":
         from . import accounts
         return accounts.main(rest)
+    if command == "setup":
+        from .config import setup_main
+        return setup_main(rest)
     if command == "ui":
         from . import ui
         return ui.main(rest)
     try:
-        run(argv)
+        result = run(argv)
     except (ReposFileError, RunLocked, RuntimeError) as e:
         print(redact(e), file=sys.stderr)
         return 1
+    if not result.dry_run:
+        print("Review with `git log`, then push it yourself (or use `mirror.py sync`, which also pushes).")
     return 0

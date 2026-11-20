@@ -29,6 +29,8 @@ make test            # optional: the offline test suite, about 30 s (Windows: py
 ```
 
 Keep the folder where it is: automatic runs point at it (if you move it later, see [Moving or updating](#moving-or-updating)).
+This guide runs the tool from the folder (`python3 -I src/mirror.py ...`). `pipx install .` instead gives a
+`contribution-mirror` command; see [usage](usage.md#installing-optional).
 
 ## 3. Prepare GitHub (once)
 
@@ -47,7 +49,7 @@ Keep the folder where it is: automatic runs point at it (if you move it later, s
 make ui              # or: python3 -I src/mirror.py ui
 ```
 
-Your browser opens the setup page (the terminal shows the link too; it contains a one-time key, so do not share it).
+Your browser opens the setup page (the terminal shows the link too; it is the key to the page, so do not share it).
 
 1. **Setup > You:** your work email (the author email of your commits in the work repos; several are fine), your name
    and verified personal email, and the mirror repo URL from step 3. Press **Check** to test the mirror URL, then
@@ -60,14 +62,17 @@ Not sure which email your work commits use? In a work repo, run `git log --forma
 ### The command way
 
 ```bash
-make setup           # copies the two templates (never overwrites); Windows: see the README quick start
+make setup           # or: python3 -I src/mirror.py setup (Windows: py -3 -I src\mirror.py setup)
 ```
 
-Then edit the two files (both are git-ignored, so nothing private is ever committed):
+`setup` creates your settings file (`.env`) and project list (`repos.json`) from the templates, never overwrites them,
+and prints where they are ([where the files are](configuration.md#where-the-files-are)). Then edit both:
 
-- `config/.env`: `WORK_EMAIL`, `PERSONAL_NAME`, `PERSONAL_EMAIL`, `EXPECTED_REMOTE` (the mirror URL). Optional settings
-  are explained in the file and in [configuration](configuration.md).
-- `config/repos.json`: your projects, `{"repos": ["/path/to/clone", "git@github.com:org/repo.git"]}`.
+- your settings file (`.env`): `WORK_EMAIL`, `PERSONAL_NAME`, `PERSONAL_EMAIL`, `EXPECTED_REMOTE` (the mirror URL). Optional
+  settings are explained in the file and in [configuration](configuration.md).
+- your project list (`repos.json`): your projects, `{"repos": ["/path/to/clone", "git@github.com:org/repo.git"]}`.
+
+Both are private to you and kept outside the code, so nothing private is ever committed.
 
 ## 5. Preview (changes nothing)
 
@@ -96,7 +101,7 @@ auth login`, or a credential helper). See [authentication](authentication.md).
 
 For each host of your projects it shows which login is used (for example `you-at-work via gh:you-at-work`). If a host
 says *no login found*, log in to it (`gh auth login`, `glab auth login`, or an https credential helper), or set a token in
-`config/.env` (see [authentication](authentication.md)). Commits are mirrored either way.
+your settings file (see [authentication](authentication.md)). Commits are mirrored either way.
 
 ## 8. Automatic runs (optional)
 
@@ -104,19 +109,19 @@ says *no login found*, log in to it (`gh auth login`, `glab auth login`, or an h
 - Command: `make schedule` (login and daily at 18:00), `make schedule TIME=14:00`, `make schedule-login`,
   `make schedule-daily TIME=09:30`, `make schedule-off`, `make schedule-status`.
 
-It uses your system's own scheduler (systemd, launchd or Task Scheduler). Each automatic run reads `config/.env` and
-`config/repos.json` when it starts, so changes you save later are used without reinstalling. Automatic runs cannot type
+It uses your system's own scheduler (systemd, launchd or Task Scheduler). Each automatic run reads your settings file
+and project list when it starts, so changes you save later are used without reinstalling. Automatic runs cannot type
 passwords: use an ssh agent or an https credential helper. Details: [scheduling](scheduling.md).
 
 ## Checking on it
 
 - Page: **Logs** shows a bar per sync and the log, newest first.
-- Files: `logs/mirror.log` in the project folder ([logs](logs.md)).
+- Files: `mirror.log` in your log folder (`mirror.py setup` prints where; [logs](logs.md)).
 - Desktop notifications after each automatic run say how many commits were added, or what failed.
 
 ## Moving or updating
 
-- **Update:** `git pull` in this folder. Your `config/` files and the mirror are untouched.
+- **Update:** `git pull` in this folder. Your settings file, project list, logs and the mirror are untouched.
 - **Moved the folder, or changed Python?** Apply the schedule again (Schedule > Apply, or `make schedule`) so the
   scheduler points at the new place.
 - **A second computer:** clone the tool there and use the same mirror repo. Each sync first fetches the mirror repo and
@@ -126,16 +131,18 @@ passwords: use an ssh agent or an https credential helper. Details: [scheduling]
 
 | You see | What to do |
 | --- | --- |
-| `missing config/.env` | Do step 4 (page: Setup > Save; command: `make setup`, then edit the file). |
+| `missing <path> -- run mirror.py setup` | Do step 4 (page: Setup > Save; command: `make setup`, then edit the file). |
+| `no project list: <path> does not exist` | Do step 4 to create the project list, or name folders with `--src` / `sync <folder>`. Nothing else is scanned. |
 | `0 found` for a project | The author email differs from `WORK_EMAIL`: see the tip in step 4. |
 | `fetch failed ... scanning what is already local` | Your git access to that work repo failed (offline, or no credentials for this run); the local copy was still read. |
-| `refusing to push: origin is ...` | The mirror folder points at another repo than `EXPECTED_REMOTE`. Fix the URL in Setup or in `config/.env`. |
+| `refusing to push: origin is ...` | The mirror folder points at another repo than `EXPECTED_REMOTE`. Fix the URL in Setup or in your settings file. |
+| `refusing to write to <folder>: it has commits this tool did not make` | `MIRROR_DIR` points at a folder with other work in it. Use a new folder, or mark your own mirror as the message says ([the mirror folder](configuration.md#the-mirror-folder)). |
 | `another run is in progress` | A manual sync and an automatic run overlapped; try again in a minute. |
 | Commits pushed but not on the graph | Verify the personal email (step 3.2), enable private contributions (step 3.3), wait a few minutes. |
-| Anything else | `logs/mirror.log` has the `WARNING`/`ERROR` lines (never tokens); include them, your OS and git host in a bug report. |
+| Anything else | `mirror.log` in your log folder has the `WARNING`/`ERROR` lines (never tokens); include them, your OS and git host in a bug report. |
 
 ## Removing it
 
 1. Stop automatic runs: Schedule > **Turn all off**, or `make schedule-off`.
-2. Delete this folder and the mirror folder (`~/work-contributions` by default).
+2. Delete this folder, the mirror folder (`~/work-contributions` by default), and your settings, project list and log folders (`mirror.py setup` shows where they are).
 3. To remove the history from your graph, delete the mirror repo on GitHub.

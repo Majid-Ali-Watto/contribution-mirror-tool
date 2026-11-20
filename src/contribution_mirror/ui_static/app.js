@@ -13,19 +13,29 @@ const el = (tag, cls, text) => {
 const TABS = ["setup", "sync", "accounts", "schedule", "logs"];
 const START_TAB = (location.hash.match(/(?:^#|&)tab=(setup|sync|accounts|schedule|logs)/) || [])[1];
 
-const TOKEN = (() => {
-  const m = location.hash.match(/(?:^#|&)t=([^&]+)/);
-  let t = m ? decodeURIComponent(m[1]) : "";
+// The session token: from the terminal's link (#t=), or traded once for the one-time code the browser was opened with
+// (#c=), then kept for this tab only. Either way the fragment is removed from the address bar and history at once.
+const SESSION = (async () => {
+  const t = location.hash.match(/(?:^#|&)t=([^&]+)/);
+  const c = location.hash.match(/(?:^#|&)c=([^&]+)/);
+  if (t || c) history.replaceState(null, "", location.pathname);
+  let token = t ? decodeURIComponent(t[1]) : "";
+  if (!token && c) {
+    const res = await fetch("/api/session", { method: "POST", cache: "no-store",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: decodeURIComponent(c[1]) }) });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    token = data.token;
+  }
   try {
-    if (t) sessionStorage.setItem("mirror-token", t);
-    else t = sessionStorage.getItem("mirror-token") || "";
+    if (token) sessionStorage.setItem("mirror-token", token);
+    else token = sessionStorage.getItem("mirror-token") || "";
   } catch (_) { /* storage may be blocked: the link still works for this load */ }
-  if (m) history.replaceState(null, "", location.pathname);   // keep the key out of the address bar and history
-  return t;
+  return token;
 })();
 
 async function api(path, body) {
-  const opts = { headers: { "X-Mirror-Token": TOKEN }, cache: "no-store" };
+  const opts = { headers: { "X-Mirror-Token": await SESSION }, cache: "no-store" };
   if (body !== undefined) {
     opts.method = "POST";
     opts.headers["Content-Type"] = "application/json";

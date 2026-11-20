@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from .gitutil import canonical_date, git, git_lines
 from .settings import MSG
 
+MARKER = "contribution-mirror.mirror"     # git config key set in a repo this tool created (or adopted) as the mirror
+
 def raw_date(iso):
     """ISO-8601 -> git's raw '<unix> <+hhmm>' form, keeping the original UTC offset."""
     dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
@@ -91,8 +93,40 @@ def reconcile(mirror, name, email):
     return f"local and remote both had new commits: rebuilt on the remote, {sum(extra.values())} kept"
 
 
+class NotAMirror(RuntimeError):
+    """The mirror folder holds a repo this tool did not create: writing to it could replace real work."""
+
+
+def _is_marked(mirror):
+    return git(mirror, "config", "--bool", "--get", MARKER, check=False).strip() == "true"
+
+
+def _only_mirror_commits(mirror):
+    """True if every commit on every local branch is one this tool writes (empty tree, message MSG), or there are
+    none: an older mirror, from before the marker existed, or a fresh clone of one."""
+    empty_tree = subprocess.run(["git", "-C", mirror, "hash-object", "-t", "tree", "--stdin"], input="",
+                                capture_output=True, text=True, check=True).stdout.strip()
+    for line in git_lines(mirror, "log", "--branches", "--format=%T %s"):
+        tree, _, subject = line.partition(" ")
+        if tree != empty_tree or subject != MSG:
+            return False
+    return True
+
+
 def ensure_repo(mirror):
-    """Create the mirror repo (branch main) if it does not exist yet."""
+    """Create the mirror repo (branch main, marked as a mirror) if it does not exist yet; otherwise make sure it is one.
+    Writing moves and extends `main`, so a folder that holds real work (MIRROR_DIR set to the wrong folder) is refused:
+    only a repo this tool marked, or one with nothing but mirror commits (then marked now), is used."""
     if not os.path.isdir(os.path.join(mirror, ".git")):
         os.makedirs(mirror, exist_ok=True)
         git(mirror, "init", "-b", "main")
+        git(mirror, "config", MARKER, "true")
+        return
+    if _is_marked(mirror):
+        return
+    if not _only_mirror_commits(mirror):
+        raise NotAMirror(f"refusing to write to {mirror}: it has commits this tool did not make, so it is not your "
+                         f"contribution mirror. Set MIRROR_DIR to a new folder, or, if it really is your mirror (e.g. "
+                         f"a clone of a repo that started with a README), mark it: "
+                         f"git -C \"{mirror}\" config {MARKER} true")
+    git(mirror, "config", MARKER, "true")

@@ -1,0 +1,24 @@
+# Packaging metadata only: the tool has no dependencies (standard library, Python 3.9+). Running it from a checkout
+# (`python3 -I src/mirror.py ...`) needs none of this; it lets `pipx install .` give you a `contribution-mirror` command.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contribution-mirror"
+version = "1.0.0"
+description = "Copy the timestamps of your work activity into a personal repo, so your contribution graph shows it"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+contribution-mirror = "contribution_mirror.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["contribution_mirror", "contribution_mirror.providers"]
+
+[tool.setuptools.package-data]
+contribution_mirror = ["ui_static/*", "templates/*"]

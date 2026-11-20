@@ -1,10 +1,12 @@
-"""The local setup/sync page: security checks, editing config/.env and repos.json, and real preview/sync runs."""
+"""The local setup/sync page: security checks, editing .env and repos.json, and real preview/sync runs."""
 import http.client
 import json
 import os
 import stat
 import subprocess
+import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -34,7 +36,8 @@ class Server(unittest.TestCase):
         self.addCleanup(self.app.close)
         self.httpd, self.url, self.token = ui.make_server(self.app)
         self.port = self.httpd.server_address[1]
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.serving = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.serving.start()
         self.addCleanup(self.httpd.server_close)
         self.addCleanup(self.httpd.shutdown)
 
@@ -83,6 +86,39 @@ class Security(Server):
     def test_the_link_carries_the_token_in_the_fragment_only(self):
         self.assertTrue(self.url.startswith(f"http://127.0.0.1:{self.port}/#t="))
         self.assertEqual(self.httpd.server_address[0], "127.0.0.1")
+
+    def test_the_browser_gets_a_one_time_code_that_is_traded_for_the_token_once(self):
+        """Other users can read the browser's command line: it carries a code that works once, never the token."""
+        launch = self.httpd.launch_url
+        self.assertTrue(launch.startswith(f"http://127.0.0.1:{self.port}/#c="))
+        self.assertNotIn(self.token, launch)
+        code = launch.split("#c=", 1)[1]
+        self.assertEqual(self.request("POST", "/api/session", {"code": "guess"}, token=False)[0], 403)
+        self.assertEqual(self.request("POST", "/api/session", {"code": code}, token=False,
+                                      origin="https://evil.example")[0], 403)
+        status, body, _ = self.request("POST", "/api/session", {"code": code}, token=False)
+        self.assertEqual((status, body), (200, {"token": self.token}))
+        status, body, _ = self.request("POST", "/api/session", {"code": code}, token=False)
+        self.assertEqual(status, 403)
+        self.assertIn("already used", body["error"])
+        self.serving.join(timeout=10)                                  # a second use stops the server
+        self.assertFalse(self.serving.is_alive())
+
+    def test_malformed_requests_are_400_not_crashes(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.putrequest("POST", "/api/settings", skip_host=True)
+            for k, v in (("Host", f"127.0.0.1:{self.port}"), ("X-Mirror-Token", self.token),
+                         ("Content-Type", "application/json"), ("Content-Length", "-1")):
+                conn.putheader(k, v)
+            conn.endheaders()
+            r = conn.getresponse()
+            self.assertEqual(r.status, 400)
+            r.read()
+        finally:
+            conn.close()
+        self.assertEqual(self.request("GET", "/api/logs?limit=abc")[0], 400)
+        self.assertEqual(self.request("GET", "/api/job?since=x")[0], 400)
 
     def test_the_page_loads_and_is_locked_down(self):
         status, body, headers = self.request("GET", "/", token=False)
@@ -282,6 +318,40 @@ class Runs(Server):
         self.wait()
 
 
+@unittest.skipIf(os.name == "nt", "Windows ends the process tree with taskkill instead")
+class Cancel(unittest.TestCase):
+    def test_cancel_stops_the_programs_a_run_started_too(self):
+        """A run's git processes must stop with it, or they keep a temporary clone busy after Cancel."""
+        with tempfile.TemporaryDirectory() as d:
+            pid_file = os.path.join(d, "pid")
+            script = textwrap.dedent(f"""
+                import subprocess, sys, time
+                child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+                with open({pid_file!r}, "w") as f:
+                    f.write(str(child.pid))
+                print("ready", flush=True)
+                time.sleep(60)
+            """)
+            job = ui.Job("sync", [sys.executable, "-I", "-c", script], dict(os.environ))
+            deadline = time.monotonic() + 30
+            while not job.lines and time.monotonic() < deadline:
+                time.sleep(0.05)
+            with open(pid_file) as f:
+                grandchild = int(f.read())
+            job.cancel()
+            job.reader.join(timeout=30)
+            self.assertFalse(job.running)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(grandchild, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("the run's own child process survived Cancel")
+
+
 class SameFilesAsScheduledRuns(Server):
     """A scheduled run must use exactly what the page saved: same files, same values."""
     def test_the_page_and_scheduled_runs_use_the_same_files_by_default(self):
@@ -290,7 +360,8 @@ class SameFilesAsScheduledRuns(Server):
         self.addCleanup(app.close)
         self.assertEqual(app.env_path, config.DEFAULT_ENV_FILE)          # what `mirror.py scheduled` loads
         self.assertEqual(app.repos_path, settings.REPOS_FILE)
-        self.assertEqual(cli.build_parser().get_default("repos_file"), settings.REPOS_FILE)
+        self.assertIsNone(cli.build_parser().get_default("repos_file"))      # resolved like below at run time
+        self.assertEqual(config.repos_path(), settings.REPOS_FILE)
 
     def test_what_the_page_saves_is_what_a_run_reads(self):
         from contribution_mirror import config, sync
@@ -356,7 +427,7 @@ class Parsing(unittest.TestCase):
     def test_result_lines_become_numbers(self):
         r = ui.parse_result(["repo /home/u/work/app: matching=5 already_mirrored=3 new=2",
                              "repo remote:api: matching=1 already_mirrored=0 new=1",
-                             "repo github-api:pull-requests: matching=4 already_mirrored=4 new=0",
+                             "repo api:pull-requests: matching=4 already_mirrored=4 new=0",
                              "SUMMARY mode=apply repos=2 matching=10 already_mirrored=7 created=3 | new per repo: app=2",
                              "pushed"])
         self.assertEqual([s["name"] for s in r["sources"]], ["app", "remote:api", "Pull requests"])
@@ -365,7 +436,7 @@ class Parsing(unittest.TestCase):
 
     def test_env_lines_are_replaced_in_place(self):
         text = "# c\nA=1\nexport B=2\n# B=commented\nB=3\n"
-        self.assertEqual(ui.update_env_text(text, {"B": "x", "C": "y z"}), "# c\nA=1\nB=x\n# B=commented\n\nC=y z\n")
+        self.assertEqual(envfile.update_text(text, {"B": "x", "C": "y z"}), "# c\nA=1\nB=x\n# B=commented\n\nC=y z\n")
 
 
 if __name__ == "__main__":

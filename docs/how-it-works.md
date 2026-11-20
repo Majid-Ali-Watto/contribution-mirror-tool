@@ -5,8 +5,10 @@
 - **Reads** (from work repos): the author email and author date of each commit, plus its hash, which is kept only in memory during the run so that a commit found in two listed repos (a fork, or the same project cloned twice) counts once. No messages or paths are read, and the hash is never stored or written.
 - **Reads** (from your work host's REST API, using a login found automatically): only the timestamp of each pull / merge request you opened and each review you made in the last 365 days, in the repos of the owners (organisations, users, workspaces) of the projects you listed (on GitLab: the listed projects), as far as each host provides them: see [hosts](hosts.md). Nothing else is stored (no titles, repos, PR numbers).
 - **Never copies** into the mirror: code, file names, paths, commit messages, hashes or repo names.
-- **Writes**: empty commits with the message `mirror`, your personal name and email, and the original date, into the mirror repo only.
-- **Never modifies** your work: before scanning it runs `git fetch` in the work clones, which only updates remote-tracking refs (no branches, working tree, uncommitted changes or `--prune`). Repos that are not cloned locally are cloned into a temp folder as a bare, tree-less clone (commit metadata only: a few hundred KB for a small project, tens of MB for a long history, and everything if the host does not support tree-less clones), scanned, and **deleted right after**. Set `MIRROR_CLONE_CACHE` to keep those clones between runs instead and only fetch new commits ([configuration](configuration.md)).
+- **Writes**: empty commits with the message `mirror`, your personal name and email, and the original date, into the mirror repo only. The mirror folder must be one this tool made or marked as its own ([configuration](configuration.md#the-mirror-folder)).
+- **Never modifies** your work: before scanning it runs `git fetch` in the work clones, which only updates remote-tracking refs (no branches, working tree, uncommitted changes or `--prune`). Repos that are not cloned locally are cloned into a temporary folder inside your log folder (`tmp/`, private to you, not the system temp folder) as a bare, tree-less clone (commit metadata only: a few hundred KB for a small project, tens of MB for a long history, and everything if the host does not support tree-less clones), scanned, and **deleted right after**. Set `MIRROR_CLONE_CACHE` to keep those clones between runs instead and only fetch new commits ([configuration](configuration.md)).
+- A run that is stopped still cleans up. On Linux and macOS, SIGTERM (the page's **Stop**, or a scheduler stopping the job) ends the run through its cleanup, and the page's Stop also ends git and every other program the run started. On Windows the process tree is ended, so the cleanup may not run: the next run empties `tmp/` before it starts (under the run lock), so nothing is left behind for long.
+- A host that ignores the tree-less filter (`--filter=tree:0`) sends the full file contents into a temporary clone while it exists. That is why the clones are kept in your private log folder, not in a shared temp folder.
 - Repo folder names appear **only** in the local log, never in the mirror repo.
 
 ## The steps of a run
@@ -16,7 +18,7 @@ these in order; each step lives in its own module:
 
 Before the core, `sync` fetches your personal repo and builds on what is already there (`mirror_repo.py`), so running it on a second computer, or with a new mirror folder, never adds a date twice. Only one run at a time is allowed (`runlock.py`).
 
-1. **Choose projects** (`repos.py`): your `config/repos.json` entries, paths and URLs of any host.
+1. **Choose projects** (`repos.py`): the entries of your project list (`repos.json`), paths and URLs of any host.
 2. **Find a login** (`credentials.py`, `providers/`): lazily, once per host, only when needed.
 3. **Read commit dates** (`scan.py`, `gitutil.py`): fetch each local clone, or make a temporary clone for each URL, in parallel; stream `git log` line by line.
 4. **Read the mirror** (`mirror_repo.py`): which timestamps are already in it.

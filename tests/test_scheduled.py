@@ -95,7 +95,7 @@ class TheScheduledRun(unittest.TestCase):
         os.environ["MIRROR_ENV_FILE"] = os.path.join(self.tmp.name, "missing.env")
         with mock.patch.object(scheduled, "failure") as failure:
             self.assertEqual(scheduled.main([]), 1)
-        self.assertIn("config/.env", failure.call_args[0][0])
+        self.assertIn("cannot read your settings (.env)", failure.call_args[0][0])
 
 
 class NoTokensInReports(TheScheduledRun):

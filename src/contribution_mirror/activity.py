@@ -3,6 +3,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from .logsetup import say, warn
+from .report import API_PREFIX
 from .state import api_since
 from .timeutil import to_utc_z
 
@@ -47,7 +48,7 @@ def fetch_activity(creds, repos_by_scope, st, mirror_has_commits, full, explicit
         else:
             say("PRs/reviews          : skipped (no login found that can see your projects, or the host has no "
                 "supported API; commits are still mirrored. Log in with `gh auth login` / `glab auth login`, "
-                "use an https credential helper, or set WORK_TOKEN in config/.env)")
+                "use an https credential helper, or set WORK_TOKEN in your .env settings)")
     if not done:
         return [], {}, started
-    return [("github-api:pull-requests", Counter(prs)), ("github-api:reviews", Counter(reviews))], done, started
+    return [(f"{API_PREFIX}pull-requests", Counter(prs)), (f"{API_PREFIX}reviews", Counter(reviews))], done, started

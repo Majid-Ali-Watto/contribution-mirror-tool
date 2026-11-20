@@ -3,9 +3,12 @@
     python3 -I src/mirror.py ui [--port N] [--no-browser]
 
 Security model: the server listens on the loopback address only, and every API call must carry a random token that
-is created at start and handed to the browser in the URL it opens (the page then removes it from the address bar).
-Requests must name this server in their Host header (no DNS rebinding) and writes must come from this page's own
-origin with a JSON body (no cross-site form posts). The page never receives a token value: it only learns whether one
+is created at start. The browser is opened with a one-time launch code instead of the token (a program's arguments,
+and so the link given to the browser, can be read by other users of the computer): the page trades the code for the
+token once, and a second use of the code stops the server, since then someone else had it too. The link printed in
+the terminal carries the token itself (the page removes it from the address bar). Requests must name this server in
+their Host header (no DNS rebinding) and writes must come from this page's own origin with a JSON body (no
+cross-site form posts). The page never receives a token value: it only learns whether one
 is set. Runs (preview / sync) are separate `mirror.py sync` processes, so they read the saved settings fresh, cannot
 take the page down, and share the run lock with the scheduler."""
 import argparse
@@ -15,6 +18,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -25,12 +29,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import envfile
+from . import repos as repolist
 from . import schedule as scheduler
 from .config import DEFAULT_ENV_FILE, REQUIRED
 from .gitutil import work_env
 from .logsetup import redact
-from .remotes import is_url, repo_path, url_host
-from .settings import LOG_DIR, PROJECT_ROOT, REPOS_FILE
+from .providers import WORK_TOKEN_VARS
+from .remotes import is_url, repo_path
+from .report import parse_result, read_logs
+from .settings import ENV_TEMPLATE, LOG_DIR, REPOS_FILE, self_command
 
 LOOPBACK = "127.0.0.1"
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui_static")
@@ -40,75 +47,20 @@ STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
                 "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
                 "/favicon.svg": ("favicon.svg", "image/svg+xml"),
                 "/favicon.ico": ("favicon.svg", "image/svg+xml")}       # browsers that ask for the old name anyway
-ENTRY = os.path.join(PROJECT_ROOT, "src", "mirror.py")
-EXAMPLE_ENV = os.path.join(PROJECT_ROOT, "config", ".env.example")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-TOKEN_VARS = ("WORK_TOKEN", "WORK_GITHUB_TOKEN", "WORK_GITLAB_TOKEN", "WORK_BITBUCKET_TOKEN",
-              "WORK_AZURE_DEVOPS_TOKEN", "WORK_GITEA_TOKEN")
-# the settings this page edits; everything else in config/.env (tokens, comments, advanced keys) is left as it is
+TOKEN_VARS = WORK_TOKEN_VARS
+# the settings this page edits; everything else in .env (tokens, comments, advanced keys) is left as it is
 FIELDS = ("WORK_EMAIL", "PERSONAL_NAME", "PERSONAL_EMAIL", "EXPECTED_REMOTE", "MIRROR_DIR", "MIRROR_PR_REVIEWS",
           "MIRROR_CLONE_CACHE")
 MAX_LINES = 5000
-SUMMARY_RE = re.compile(r"^SUMMARY mode=(\S+) repos=(\d+) matching=(\d+) already_mirrored=(\d+) "
-                        r"(would_create|created)=(\d+)")
-SOURCE_RE = re.compile(r"^repo (.+): matching=(\d+) already_mirrored=(\d+) new=(\d+)$")
-LOG_LINE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ (\w+) (.*)$")
-LOG_SUMMARY_RE = re.compile(r"^SUMMARY mode=(\S+) repos=(\d+) matching=(\d+) already_mirrored=(\d+) "
-                            r"(?:would_create|created)=(\d+)")
+MAX_BODY = 1_000_000
 
 
 class BadRequest(ValueError):
     pass
 
 
-# ---------------------------------------------------------------------------------------------------- settings file
-
-def read_env(path):
-    """{key: value} of config/.env as written (not expanded into the environment), or {} if missing."""
-    if not os.path.isfile(path):
-        return {}
-    with open(path, encoding="utf-8") as f:
-        return envfile.parse(f.read(), path)
-
-
-def _env_value(value):
-    """How a value is written so that envfile.parse reads it back unchanged: quoted only when it has to be."""
-    if value != value.strip() or (len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"):
-        return f'"{value}"'
-    return value
-
-
-def update_env_text(text, updates):
-    """`text` of an env file with `updates` applied: existing KEY= lines are replaced in place (comments, order and
-    every other key are kept), new keys are appended."""
-    out, done = [], set()
-    for line in text.splitlines():
-        stripped = line.strip()
-        body = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
-        key = body.split("=", 1)[0].strip() if "=" in body and not stripped.startswith("#") else None
-        if key in updates:
-            if key not in done:
-                out.append(f"{key}={_env_value(updates[key])}")
-                done.add(key)
-            continue
-        out.append(line)
-    missing = [k for k in updates if k not in done]
-    if missing:
-        out += [""] + [f"{k}={_env_value(updates[k])}" for k in missing]
-    return "\n".join(out).rstrip("\n") + "\n"
-
-
-def write_private(path, text):
-    """Write a file only its owner can read (on Linux/macOS), atomically."""
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    if os.name != "nt":
-        os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-
+# ---------------------------------------------------------------------------------------------------- checks
 
 def validate_settings(data):
     """Clean the submitted settings or raise BadRequest with every problem in one message."""
@@ -146,66 +98,6 @@ def validate_settings(data):
     return values
 
 
-# ---------------------------------------------------------------------------------------------------- project list
-
-def check_entry(entry):
-    """What the page shows next to one repos.json entry. Never touches the network."""
-    if is_url(entry):
-        return {"entry": entry, "kind": "url", "ok": True, "detail": url_host(entry) or "URL"}
-    path = os.path.abspath(os.path.expanduser(entry))
-    if os.path.isdir(os.path.join(path, ".git")) or os.path.isfile(os.path.join(path, ".git")):
-        return {"entry": entry, "kind": "path", "ok": True, "detail": "git repo"}
-    detail = "not a git repo" if os.path.isdir(path) else "folder not found"
-    return {"entry": entry, "kind": "path", "ok": False, "detail": detail}
-
-
-def read_repos(path):
-    """(entries, used the older "remote_repos" key, error or None)."""
-    if not os.path.isfile(path):
-        return [], False, None
-    try:
-        with open(path, encoding="utf-8-sig") as f:
-            cfg = json.load(f)
-    except (OSError, ValueError) as e:
-        return [], False, f"{os.path.basename(path)} cannot be read: {e}"
-    if not isinstance(cfg, dict):
-        return [], False, f"{os.path.basename(path)} is not an object"
-    listed = [x for x in cfg.get("repos", []) if isinstance(x, str)]
-    legacy = [x for x in cfg.get("remote_repos", []) if isinstance(x, str)]
-    return list(dict.fromkeys(listed + legacy)), bool(legacy), None
-
-
-def clean_entries(entries):
-    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
-        raise BadRequest("expected a list of paths and URLs")
-    out = []
-    for e in entries:
-        e = e.strip()
-        if "\n" in e or "\r" in e:
-            raise BadRequest("an entry must be one line")
-        if e and e not in out:
-            out.append(e)
-    return out
-
-
-def find_repos(folder, limit=300, seconds=4.0):
-    """Git repos under `folder` (not inside each other, skipping node_modules), stopping after `limit` results or a
-    few seconds so a huge folder cannot hang the page. Returns (paths, complete)."""
-    folder = os.path.abspath(os.path.expanduser(folder))
-    if not os.path.isdir(folder):
-        raise BadRequest(f"folder not found: {folder}")
-    deadline, found = time.monotonic() + seconds, []
-    for dp, dn, fn in os.walk(folder):
-        if ".git" in dn or ".git" in fn:
-            found.append(dp)
-            dn[:] = []
-        else:
-            dn[:] = sorted(d for d in dn if d not in ("node_modules", ".git") and not d.startswith("."))
-        if len(found) >= limit or time.monotonic() > deadline:
-            return found, False
-    return found, True
-
-
 def check_remote(remote):
     """Can your normal git setup reach the mirror repo? (`git ls-remote`, never prompts). Returns (ok, message)."""
     if not remote:
@@ -237,9 +129,11 @@ class Job:
         self.mode, self.lines, self.code, self.started = mode, [], None, time.time()
         self.dates_path, self._days = dates_path, None
         self.lock = threading.Lock()
+        # its own process group, so Cancel stops the git processes it started too (see cancel)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     text=True, encoding="utf-8", errors="replace", env=env, creationflags=flags)
+                                     text=True, encoding="utf-8", errors="replace", env=env, creationflags=flags,
+                                     start_new_session=os.name != "nt")
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
@@ -260,7 +154,18 @@ class Job:
             return self.code is None
 
     def cancel(self):
-        if self.running:
+        """Stop the run and every program it started. On Linux/macOS the whole group gets SIGTERM: git stops, and the
+        run itself exits through its cleanup (temporary clones are deleted). Windows has no such signal: the tree is
+        ended, and the next run deletes whatever temporary clone was left."""
+        if not self.running:
+            return
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True, timeout=30,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                os.killpg(self.proc.pid, signal.SIGTERM)
+        except (OSError, subprocess.TimeoutExpired):
             self.proc.terminate()
 
     def days(self):
@@ -281,33 +186,11 @@ class Job:
                 "days": self.days() if code is not None else None}
 
 
-def parse_result(lines):
-    """Totals and per-source counts from a run's output (the SUMMARY line and the `repo ...:` lines)."""
-    out = {"sources": [], "summary": None, "pushed": None}
-    for line in lines:
-        m = SOURCE_RE.match(line)
-        if m:
-            name = m.group(1)
-            if name.startswith("github-api:"):
-                name = {"github-api:pull-requests": "Pull requests", "github-api:reviews": "Reviews"}.get(name, name)
-            elif not name.startswith("remote:"):
-                name = os.path.basename(name.rstrip("/\\")) or name
-            out["sources"].append({"name": name, "matching": int(m.group(2)), "mirrored": int(m.group(3)),
-                                   "new": int(m.group(4))})
-        m = SUMMARY_RE.match(line)
-        if m:
-            out["summary"] = {"mode": m.group(1), "repos": int(m.group(2)), "matching": int(m.group(3)),
-                              "mirrored": int(m.group(4)), "new": int(m.group(6))}
-        if line in ("pushed", "nothing to push"):
-            out["pushed"] = line
-    return out
-
-
 # ---------------------------------------------------------------------------------------------------- the app
 
 class App:
     """What the page can read and change. Paths are injectable so tests never touch the real config."""
-    def __init__(self, env_path=DEFAULT_ENV_FILE, repos_path=REPOS_FILE, example_env=EXAMPLE_ENV, schedule_ops=None):
+    def __init__(self, env_path=DEFAULT_ENV_FILE, repos_path=REPOS_FILE, example_env=ENV_TEMPLATE, schedule_ops=None):
         self.env_path, self.repos_path, self.example_env = env_path, repos_path, example_env
         self.job, self.job_lock = None, threading.Lock()
         self.write_lock, self.schedule_lock = threading.Lock(), threading.Lock()
@@ -326,13 +209,19 @@ class App:
                 "PYTHONIOENCODING": "utf-8"}
 
     def log_dir(self):
-        """Where runs log: MIRROR_LOG_DIR (shell, then config/.env), else logs/ in the project folder."""
-        value = os.environ.get("MIRROR_LOG_DIR", "").strip() or read_env(self.env_path).get("MIRROR_LOG_DIR", "").strip()
+        """Where runs log: MIRROR_LOG_DIR (shell, then .env), else the default log folder (settings.LOG_DIR)."""
+        value = (os.environ.get("MIRROR_LOG_DIR", "").strip()
+                 or envfile.read(self.env_path).get("MIRROR_LOG_DIR", "").strip())
         return os.path.abspath(value) if value else LOG_DIR
 
     def state(self):
-        values = read_env(self.env_path)
-        entries, legacy, error = read_repos(self.repos_path)
+        values = envfile.read(self.env_path)
+        entries, legacy, error = [], False, None
+        if os.path.isfile(self.repos_path):
+            try:
+                entries, legacy = repolist.read_entries(self.repos_path)
+            except repolist.ReposFileError as e:
+                error = str(e)
         settings = {k: values.get(k, "") for k in FIELDS}
         settings["MIRROR_PR_REVIEWS"] = "off" if settings["MIRROR_PR_REVIEWS"].lower() == "off" else "on"
         missing = [k for k in REQUIRED if not (values.get(k) or os.environ.get(k, "")).strip()]
@@ -341,7 +230,7 @@ class App:
             "env_exists": os.path.isfile(self.env_path),
             "overridden": sorted(k for k in FIELDS if os.environ.get(k, "").strip()),
             "tokens": [k for k in TOKEN_VARS if (values.get(k) or os.environ.get(k, "")).strip()],
-            "repos": [check_entry(e) for e in entries],
+            "repos": [repolist.check_entry(e) for e in entries],
             "repos_legacy": legacy,
             "repos_error": error,
             "missing": missing,
@@ -353,22 +242,25 @@ class App:
     def save_settings(self, data):
         values = validate_settings(data)
         with self.write_lock:
-            if os.path.isfile(self.env_path):
-                with open(self.env_path, encoding="utf-8") as f:
-                    text = f.read()
-            elif os.path.isfile(self.example_env):
-                with open(self.example_env, encoding="utf-8") as f:
-                    text = f.read()
-            else:
-                text = ""
-            write_private(self.env_path, update_env_text(text, values))
+            envfile.update(self.env_path, values, self.example_env)
         return self.state()
 
     def save_repos(self, data):
-        entries = clean_entries((data or {}).get("repos") if isinstance(data, dict) else None)
+        try:
+            entries = repolist.clean_entries((data or {}).get("repos") if isinstance(data, dict) else None)
+        except ValueError as e:
+            raise BadRequest(str(e)) from None
         with self.write_lock:
-            write_private(self.repos_path, json.dumps({"repos": entries}, indent=2, ensure_ascii=False) + "\n")
+            repolist.save_entries(self.repos_path, entries)
         return self.state()
+
+    @staticmethod
+    def find_repos(folder):
+        try:
+            found, complete = repolist.find_under(folder)
+        except ValueError as e:
+            raise BadRequest(str(e)) from None
+        return {"found": found, "complete": complete}
 
     def start(self, mode):
         if mode not in ("preview", "sync"):
@@ -377,7 +269,7 @@ class App:
             if self.job and self.job.running:
                 raise BadRequest("a run is already in progress")
             dates = os.path.join(self.tmp, f"days-{int(time.time() * 1000)}.json")
-            cmd = [sys.executable, "-I", "-u", ENTRY, "sync", "--dates-out", dates] + (
+            cmd = self_command(extra_flags=["-u"]) + ["sync", "--dates-out", dates] + (
                 ["--dry-run"] if mode == "preview" else [])
             self.job = Job(mode, cmd, self.child_env(), dates)
         return self.job.view()
@@ -385,7 +277,7 @@ class App:
     # ----------------------------------------------------------------------------------------------- accounts
     def accounts(self, recheck=False):
         """Which login each host would use (`mirror.py accounts --json`, a separate process like a run)."""
-        cmd = [sys.executable, "-I", ENTRY, "accounts", "--json"] + (["--recheck"] if recheck else [])
+        cmd = self_command() + ["accounts", "--json"] + (["--recheck"] if recheck else [])
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
@@ -435,32 +327,10 @@ class App:
     # ----------------------------------------------------------------------------------------------- logs
     def logs(self, limit=400):
         """The newest log lines (mirror.log and its rotated copies), newest first, and the SUMMARY of each run."""
-        log_dir = self.log_dir()
-        entries, runs = [], []
-        files = [os.path.join(log_dir, "mirror.log")] + [os.path.join(log_dir, f"mirror.log.{i}") for i in range(1, 4)]
-        for path in files:
-            try:
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    lines = f.read().splitlines()
-            except OSError:
-                continue
-            for line in reversed(lines):
-                m = LOG_LINE_RE.match(line)
-                if not m:
-                    continue
-                when, level, message = m.group(1), m.group(2), redact(m.group(3))
-                s = LOG_SUMMARY_RE.match(message)
-                if s and len(runs) < 60:
-                    runs.append({"time": when, "mode": s.group(1), "repos": int(s.group(2)),
-                                 "matching": int(s.group(3)), "mirrored": int(s.group(4)), "new": int(s.group(5))})
-                if len(entries) < limit:
-                    entries.append({"time": when, "level": level, "message": message})
-            if len(entries) >= limit and len(runs) >= 60:
-                break
-        return {"dir": log_dir, "entries": entries, "runs": list(reversed(runs))}
+        return read_logs(self.log_dir(), limit)
 
 
-def make_handler(app, token, port):
+def make_handler(app, token, port, launch=None):
     allowed_hosts = {f"{LOOPBACK}:{port}", f"localhost:{port}"}
     allowed_origins = {f"http://{h}" for h in allowed_hosts}
 
@@ -504,17 +374,39 @@ def make_handler(app, token, port):
             if not self._token_ok():
                 return self._send(403, {"error": "missing or wrong session token: open the link printed in the terminal"})
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
-            if u.path == "/api/state":
-                return self._send(200, app.state())
-            if u.path == "/api/schedule":
-                return self._send(200, app.schedule_state())
-            if u.path == "/api/logs":
-                return self._send(200, app.logs(max(1, min(2000, int(q.get("limit", "400") or 400)))))
-            if u.path == "/api/job":
-                if not app.job:
-                    return self._send(200, None)
-                return self._send(200, app.job.view(int(q.get("since", "0") or 0)))
+            try:
+                if u.path == "/api/state":
+                    return self._send(200, app.state())
+                if u.path == "/api/schedule":
+                    return self._send(200, app.schedule_state())
+                if u.path == "/api/logs":
+                    return self._send(200, app.logs(max(1, min(2000, _int(q, "limit", 400)))))
+                if u.path == "/api/job":
+                    since = max(0, _int(q, "since", 0))
+                    return self._send(200, app.job.view(since) if app.job else None)
+            except BadRequest as e:
+                return self._send(400, {"error": str(e)})
             return self._send(404, {"error": "not found"})
+
+        def _body(self):
+            """The decoded JSON body of a POST. Raises BadRequest for a negative or oversized length."""
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                raise BadRequest("bad Content-Length") from None
+            if not 0 <= length <= MAX_BODY:
+                raise BadRequest("request too large" if length > MAX_BODY else "bad Content-Length")
+            return json.loads(self.rfile.read(length) or b"null")
+
+        def _session(self, data):
+            """Trade the one-time launch code for the session token (see the module docstring)."""
+            code = str((data or {}).get("code", "")) if isinstance(data, dict) else ""
+            if launch is None or not code or not hmac.compare_digest(code, launch.code):
+                return self._send(403, {"error": "this link is not valid: open the link printed in the terminal"})
+            if not launch.take():
+                return self._send(403, {"error": "this link was already used, so someone else may have it: the page "
+                                                 "has stopped. Start it again with `mirror.py ui`"})
+            return self._send(200, {"token": token})
 
         def do_POST(self):
             if not self._host_ok():
@@ -522,28 +414,28 @@ def make_handler(app, token, port):
             origin = self.headers.get("Origin")
             if origin is not None and origin not in allowed_origins:
                 return self._send(403, {"error": "wrong origin"})
-            if not self._token_ok():
+            path = urlsplit(self.path).path
+            if path != "/api/session" and not self._token_ok():
                 return self._send(403, {"error": "missing or wrong session token: open the link printed in the terminal"})
             if not self.headers.get("Content-Type", "").startswith("application/json"):
                 return self._send(415, {"error": "JSON only"})
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length > 1_000_000:
-                    raise BadRequest("request too large")
-                data = json.loads(self.rfile.read(length) or b"null")
+                data = self._body()
+                if path == "/api/session":
+                    return self._session(data)
+                arg = lambda key: (data or {}).get(key) if isinstance(data, dict) else None
                 routes = {
                     "/api/settings": lambda: app.save_settings(data),
                     "/api/repos": lambda: app.save_repos(data),
-                    "/api/find-repos": lambda: dict(zip(("found", "complete"),
-                                                        find_repos(str((data or {}).get("folder", ""))))),
+                    "/api/find-repos": lambda: app.find_repos(str(arg("folder") or "")),
                     "/api/check-remote": lambda: dict(zip(("ok", "message"),
-                                                          check_remote(str((data or {}).get("remote", "")).strip()))),
-                    "/api/run": lambda: app.start((data or {}).get("mode")),
-                    "/api/accounts": lambda: app.accounts(bool((data or {}).get("recheck"))),
+                                                          check_remote(str(arg("remote") or "").strip()))),
+                    "/api/run": lambda: app.start(arg("mode")),
+                    "/api/accounts": lambda: app.accounts(bool(arg("recheck"))),
                     "/api/schedule": lambda: app.set_schedule(data),
                     "/api/cancel": lambda: (app.job.cancel() if app.job else None) or {"ok": True},
                 }
-                route = routes.get(urlsplit(self.path).path)
+                route = routes.get(path)
                 if route is None:
                     return self._send(404, {"error": "not found"})
                 return self._send(200, route())
@@ -555,16 +447,47 @@ def make_handler(app, token, port):
     return Handler
 
 
+def _int(query, key, default):
+    try:
+        return int(query.get(key) or default)
+    except ValueError:
+        raise BadRequest(f"{key} must be a number") from None
+
+
+class Launch:
+    """The one-time code the browser is opened with. `take()` is True once; a second use calls `on_reuse`."""
+    def __init__(self, on_reuse):
+        self.code, self.used, self.on_reuse = secrets.token_urlsafe(24), False, on_reuse
+        self.lock = threading.Lock()
+
+    def take(self):
+        with self.lock:
+            first, self.used = not self.used, True
+        if not first:
+            self.on_reuse()
+        return first
+
+
 def make_server(app=None, port=0):
-    """(server, url to open, token). Bound to the loopback address only."""
+    """(server, link with the session token, token). Bound to the loopback address only. `server.launch_url` is the
+    link with the one-time launch code, for opening a browser."""
     app = app or App()
     token = secrets.token_urlsafe(24)
     httpd = ThreadingHTTPServer((LOOPBACK, port), None)
     httpd.daemon_threads = True
     real_port = httpd.server_address[1]
-    httpd.RequestHandlerClass = make_handler(app, token, real_port)
+
+    def reused():
+        print("warning: the browser link was used a second time, so another program or person had it; the page is "
+              "stopping. Start it again with `mirror.py ui`.", file=sys.stderr, flush=True)
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    launch = Launch(reused)
+    httpd.RequestHandlerClass = make_handler(app, token, real_port, launch)
     httpd.app = app
-    return httpd, f"http://{LOOPBACK}:{real_port}/#t={token}", token
+    base = f"http://{LOOPBACK}:{real_port}/"
+    httpd.launch_url = f"{base}#c={launch.code}"
+    return httpd, f"{base}#t={token}", token
 
 
 def main(argv):
@@ -581,7 +504,7 @@ def main(argv):
     print(f"  {url}")
     print("Press Ctrl+C here to stop.", flush=True)
     if not a.no_browser:
-        threading.Timer(0.3, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.3, lambda: webbrowser.open(httpd.launch_url)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

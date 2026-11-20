@@ -47,6 +47,12 @@ class Systemd(unittest.TestCase):
         self.assertIn("OnCalendar=*-*-* 07:30:00 Europe/London", timer)
         self.assertIn("Persistent=true", timer)
 
+    def test_any_folder_name_reaches_the_program_unchanged(self):
+        """% is a systemd specifier and quotes/backslashes are escapes: a folder named like that must still work."""
+        self.assertEqual(schedule.systemd_word('/srv/x/50% "off"\\y'), '"/srv/x/50%% \\"off\\"\\\\y"')
+        service = schedule.render_systemd("/opt/py 100%/python3")["contribution-mirror.service"]
+        self.assertIn('ExecStart="/opt/py 100%%/python3" "-I"', service)
+
     def test_no_timezone_means_local_time(self):
         self.assertIn("OnCalendar=*-*-* 18:00:00\n", schedule.render_systemd("/p")["contribution-mirror.timer"])
 
@@ -56,6 +62,30 @@ class Systemd(unittest.TestCase):
         self.assertTrue(all("/.config/systemd/user/" in p for p, _ in files))
         self.assertEqual(cmds[-1], ["systemctl", "--user", "enable", "--now", "contribution-mirror.timer"])
         self.assertEqual(dels, [])
+
+
+class WhereThingsLive(unittest.TestCase):
+    def test_per_user_folders_on_each_system(self):
+        from contribution_mirror import settings
+        home = "/h"
+        j = os.path.join
+        self.assertEqual(settings.user_dir("config", "linux", {}, home), j(home, ".config", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("logs", "linux", {}, home), j(home, ".local", "state", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("config", "linux", {"XDG_CONFIG_HOME": "/x"}, home), j("/x", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("logs", "linux", {"XDG_STATE_HOME": "/s"}, home), j("/s", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("config", "darwin", {}, home),
+                         os.path.join(home, "Library", "Application Support", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("logs", "darwin", {}, home), os.path.join(home, "Library", "Logs", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("config", "win32", {"APPDATA": "R"}, home), os.path.join("R", "contribution-mirror"))
+        self.assertEqual(settings.user_dir("logs", "win32", {"LOCALAPPDATA": "L"}, home),
+                         os.path.join("L", "contribution-mirror", "logs"))
+
+    def test_the_tool_restarts_itself_from_a_checkout_or_as_an_installed_package(self):
+        from contribution_mirror import settings
+        with unittest.mock.patch.object(settings, "IN_CHECKOUT", True):
+            self.assertEqual(settings.self_command("py", ["-u"]), ["py", "-I", "-u", settings.ENTRY])
+        with unittest.mock.patch.object(settings, "IN_CHECKOUT", False):
+            self.assertEqual(settings.self_command("py"), ["py", "-I", "-m", "contribution_mirror"])
 
 
 class Launchd(unittest.TestCase):

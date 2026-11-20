@@ -1,6 +1,9 @@
-"""Reading config/.env: plain KEY=VALUE lines, parsed and never executed (so a value can never run code)."""
+"""The settings file (.env): plain KEY=VALUE lines, parsed and never executed (so a value can never run code), and
+edited in place by the setup page (only the lines it manages; comments, order and every other key are kept)."""
 import os
 import re
+
+from .fsutil import write_private
 
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -44,7 +47,7 @@ def load(path, environ=None):
     Returns the parsed {key: value}."""
     environ = os.environ if environ is None else environ
     if not os.path.isfile(path):
-        raise EnvFileError(f"missing {path} -- copy config/.env.example to config/.env and fill it in")
+        raise EnvFileError(f"missing {path} -- run `mirror.py setup` (or open the page: `mirror.py ui`) and fill it in")
     with open(path, encoding="utf-8") as f:
         values = parse(f.read(), path)
     for key, value in values.items():
@@ -57,4 +60,49 @@ def require(names, environ=None):
     environ = os.environ if environ is None else environ
     missing = [n for n in names if not environ.get(n, "").strip()]
     if missing:
-        raise EnvFileError("missing in config/.env: " + " ".join(missing))
+        raise EnvFileError("missing in your .env settings: " + " ".join(missing))
+
+
+def read(path):
+    """{key: value} of an env file as written (not put into the environment), or {} if it does not exist."""
+    if not os.path.isfile(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return parse(f.read(), path)
+
+
+def _quoted(value):
+    """How a value is written so that parse() reads it back unchanged: quoted only when it has to be."""
+    if value != value.strip() or (len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"):
+        return f'"{value}"'
+    return value
+
+
+def update_text(text, updates):
+    """`text` of an env file with `updates` applied: existing KEY= lines are replaced in place (comments, order and
+    every other key are kept), new keys are appended."""
+    out, done = [], set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        body = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        key = body.split("=", 1)[0].strip() if "=" in body and not stripped.startswith("#") else None
+        if key in updates:
+            if key not in done:
+                out.append(f"{key}={_quoted(updates[key])}")
+                done.add(key)
+            continue
+        out.append(line)
+    missing = [k for k in updates if k not in done]
+    if missing:
+        out += [""] + [f"{k}={_quoted(updates[k])}" for k in missing]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def update(path, updates, template=None):
+    """Apply `updates` to the env file at `path` (created from `template` if missing), privately and atomically."""
+    source = path if os.path.isfile(path) else template if template and os.path.isfile(template) else None
+    text = ""
+    if source:
+        with open(source, encoding="utf-8") as f:
+            text = f.read()
+    write_private(path, update_text(text, updates))

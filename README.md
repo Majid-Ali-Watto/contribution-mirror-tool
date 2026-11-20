@@ -10,7 +10,7 @@
   <a href="https://majidev.netlify.app"><img alt="Portfolio" src="https://img.shields.io/badge/portfolio-majidev.netlify.app-0A66C2.svg"></a>
 </p>
 
-# contribution-mirror-tool
+# Contribution Mirror
 
 Copies the **timestamps** of your work activity (commits, pull requests, reviews) into a separate personal repo as empty commits, so your personal GitHub contribution graph reflects your work without exposing any work code.
 
@@ -35,14 +35,10 @@ sync, with the setup page or with commands, plus troubleshooting. The short vers
 Setup, then Preview and Sync. **With files and commands:**
 
 1. Create an empty **private** repo on your personal GitHub account (the "mirror").
-2. Copy the two templates and fill them in (both copies are git-ignored, so nothing private is ever committed):
-
-   | Linux / macOS | Windows (PowerShell) |
-   | --- | --- |
-   | `cp config/.env.example config/.env` | `Copy-Item config\.env.example config\.env` |
-   | `cp config/repos.example.json config/repos.json` | `Copy-Item config\repos.example.json config\repos.json` |
-
-   `config/.env` holds your emails and the mirror repo; `config/repos.json` lists your projects (clone paths and/or git URLs of any host).
+2. Create your two files from the templates, then fill them in: `make setup` on Linux / macOS, or `python3 -I src/mirror.py setup`
+   (Windows: `py -3 -I src\mirror.py setup`). It never overwrites a file, makes them private to you, and prints where they are.
+   `.env` holds your emails and the mirror repo; `repos.json` lists your projects (clone paths and/or git URLs of any host).
+   Both live outside the code, so nothing private is ever committed ([where the files are](docs/configuration.md#where-the-files-are)).
 3. Preview, then run:
 
    | | Linux / macOS | Windows |
@@ -109,16 +105,17 @@ contribution-mirror-tool/
 ├── README.md
 ├── CLAUDE.md                   notes for contributors and Claude Code: rules, layout, pitfalls
 ├── Makefile                    short forms of the common commands (make help)
-├── config/                     everything you edit
-│   ├── .env.example            template for your private settings        (copy to config/.env)
-│   ├── repos.example.json      template for your project list            (copy to config/repos.json)
-│   └── .env, repos.json        YOUR files, git-ignored
+├── pyproject.toml              packaging metadata only (pipx install . adds a contribution-mirror command)
+├── config/                     optional, see above
+│   └── (optional) .env, repos.json   only in a checkout that already had them; otherwise see docs/configuration.md
 ├── scripts/                    one-line wrappers around the Python entry point
 │   ├── sync.sh, sync.cmd                       mirror + push
 │   └── scheduled-sync.sh, scheduled-sync.cmd   what an OS scheduler runs
 ├── src/
-│   ├── mirror.py               Python entry point (sync | scheduled | schedule | accounts | ui | core options)
+│   ├── mirror.py               Python entry point (sync | scheduled | schedule | accounts | setup | ui | core options)
 │   └── contribution_mirror/    the code, one module per responsibility
+│       ├── __main__.py         `python -I -m contribution_mirror` (installed copy)
+│       ├── templates/          env.example, repos.example.json: the templates `setup` copies
 │       ├── cli.py              command dispatch, and the core run's steps in order
 │       ├── sync.py             mirror + push          scheduled.py   network wait, notify, errors
 │       ├── schedule.py         systemd / launchd / Task Scheduler      notify.py   desktop notifications
@@ -135,14 +132,16 @@ contribution-mirror-tool/
 │       ├── activity.py, state.py   PRs and reviews: account, window, incremental scans (per host)
 │       ├── runlock.py          one run at a time
 │       ├── mirror_repo.py      read the mirror, catch up with your personal repo, write new empty commits
-│       ├── report.py, logsetup.py, timeutil.py   output, logging, timestamps from every vendor
+│       ├── report.py           the output of a run, and reading it and the logs back (the page uses this)
+│       ├── logsetup.py, fsutil.py   logging; private files and folders (0600 / 0700); redaction
+│       ├── timeutil.py         timestamps from every vendor
 ├── tests/                      offline tests, stdlib only (python -m unittest discover -s tests)
 ├── docs/                       getting started, gui, usage, configuration, authentication, hosts, platforms, scheduling, how it works, performance, logs, privacy, terms
 │   └── assets/                 overview.svg (the diagram above), ui-*-light/dark.png (setup page screenshots)
 ├── .github/workflows/tests.yml runs the tests on Ubuntu, macOS and Windows
 ├── .github/rulesets/           the default-branch ruleset, importable (see docs/branch-protection.md)
 ├── LICENSE                     MIT
-└── logs/                       generated: mirror.log, api-state.json, mirror.lock (git-ignored)
+└── logs/                       optional, see above (default: your per-user log folder)
 ```
 
 ## Documentation
@@ -152,14 +151,14 @@ contribution-mirror-tool/
 | **First setup, step by step (start here)** | [docs/getting-started.md](docs/getting-started.md) |
 | The setup and sync page in your browser, and how it is secured | [docs/gui.md](docs/gui.md) |
 | Commands, `sync`, core options, scanning folders | [docs/usage.md](docs/usage.md) |
-| `config/.env`, `config/repos.json`, every setting | [docs/configuration.md](docs/configuration.md) |
+| Your settings (`.env`), your project list (`repos.json`), where the files are, every setting | [docs/configuration.md](docs/configuration.md) |
 | ssh, https, CLIs, tokens, how the right account is chosen | [docs/authentication.md](docs/authentication.md) |
 | GitHub, GitLab, Bitbucket, Azure DevOps, Gitea: what each supports, and which source/mirror combinations work | [docs/hosts.md](docs/hosts.md) |
 | Linux, macOS, Windows: requirements, differences | [docs/platforms.md](docs/platforms.md) |
 | Automatic runs (systemd, launchd, Task Scheduler), notifications | [docs/scheduling.md](docs/scheduling.md) |
 | What is read and written, what gets counted, caveats | [docs/how-it-works.md](docs/how-it-works.md) |
 | Why it is fast and light | [docs/performance.md](docs/performance.md) |
-| `logs/mirror.log` and the SUMMARY line | [docs/logs.md](docs/logs.md) |
+| The log file (`mirror.log`) and the SUMMARY line | [docs/logs.md](docs/logs.md) |
 | The default-branch ruleset used on this repo, and how to apply it | [docs/branch-protection.md](docs/branch-protection.md) |
 | What the tool reads, writes and contacts (no telemetry) | [docs/privacy.md](docs/privacy.md) |
 | Terms of use: licence, no warranty, your responsibilities | [docs/terms.md](docs/terms.md) |
@@ -169,6 +168,7 @@ contribution-mirror-tool/
 - Python 3.9+ (standard library only) and git, on Linux, macOS or Windows. Nothing else to install: the host CLIs (`gh`, `glab`, `az`) are optional.
 - For PR and review mirroring: any login that can see your projects (an https credential helper, the host's CLI, or a `WORK_*TOKEN`). Without one, commits are still mirrored.
 - Desktop notifications and automatic runs use what your system has (`notify-send` / systemd, `osascript` / launchd, PowerShell / Task Scheduler) and are optional.
+- Optional install: `pipx install .` from this folder gives a `contribution-mirror` command with the same options as `src/mirror.py` (the tool has no dependencies). Running from the folder needs no install ([usage](docs/usage.md#installing-optional)).
 
 ## Tests
 
@@ -191,7 +191,7 @@ addresses in the code) and the parts that are easy to get wrong.
 - GitHub: [@Majid-Ali-Watto](https://github.com/Majid-Ali-Watto)
 
 Questions, bug reports and pull requests are welcome. For bugs, say which operating system and git host you use, and
-paste the `WARNING` / `ERROR` lines from `logs/mirror.log` (they never contain tokens).
+paste the `WARNING` / `ERROR` lines from your `mirror.log` (`mirror.py setup` shows where; they never contain tokens).
 
 ## License, privacy and terms
 

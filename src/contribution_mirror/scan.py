@@ -6,6 +6,7 @@ import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
+from .fsutil import private_dir
 from .gitutil import origin_url, rmtree, run_git, source_commits, token_env, work_env
 from .logsetup import warn
 from .providers import host_of
@@ -76,10 +77,18 @@ def cache_path(cache_dir, url):
     return os.path.join(cache_dir, hashlib.sha256(repo_key(url).encode()).hexdigest()[:20] + ".git")
 
 
-def remote_dates(url, emails, creds, cache_dir=None):
+def clear_tmp(tmp_root):
+    """Empty the folder of temporary clones (owner-only). Called at the start of a run, under the run lock: a run that
+    was killed (power loss, Windows' Cancel, SIGKILL) cannot clean up after itself, so the next one does."""
+    if os.path.isdir(tmp_root):
+        rmtree(tmp_root)
+    private_dir(tmp_root)
+
+
+def remote_dates(url, emails, creds, cache_dir=None, tmp_root=None):
     """Scan a repo that is not cloned locally. Returns ({hash: date}, error-or-None).
 
-    Default: bare, tree-less clone (commits only) into a temp folder that is always deleted afterwards. With a
+    Default: bare, tree-less clone (commits only) into a temp folder (in `tmp_root`) that is deleted afterwards. With a
     `cache_dir` the clone is kept there and only new commits are fetched on later runs (much faster for big repos,
     and for hosts that ignore the tree-less filter and send everything); if that fetch fails, the cached copy is
     still scanned."""
@@ -106,7 +115,7 @@ def remote_dates(url, emails, creds, cache_dir=None):
             return source_commits(path, emails, env), note
         except RuntimeError as e:
             return {}, f"could not read commits, skipped: {e}"
-    tmp = tempfile.mkdtemp(prefix="mirror-scan-")
+    tmp = tempfile.mkdtemp(prefix="mirror-scan-", dir=tmp_root)
     try:
         env, err = _clone(url, tmp + "/r", creds)
         if err:
@@ -134,7 +143,7 @@ def count_once(per_repo):
     return out
 
 
-def scan_all(repos, remotes, emails, creds, no_fetch=False, cache_dir=None):
+def scan_all(repos, remotes, emails, creds, no_fetch=False, cache_dir=None, tmp_root=None):
     """Commit dates of every project, in parallel. Returns [(label, Counter)] in a stable order: local repos
     first (label = path), then URL entries (label = 'remote:<name>'). Problems are warnings, never crashes."""
     def scan_local(r):
@@ -148,7 +157,7 @@ def scan_all(repos, remotes, emails, creds, no_fetch=False, cache_dir=None):
             return {}
 
     def scan_remote(url):
-        commits, err = remote_dates(url, emails, creds, cache_dir)
+        commits, err = remote_dates(url, emails, creds, cache_dir, tmp_root)
         if err:
             warn(f"{url}: {err}")
         return commits

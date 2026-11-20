@@ -11,10 +11,14 @@ from .gitea import Gitea
 from .github import GitHub
 from .gitlab import GitLab
 
-__all__ = ["GENERIC", "PROVIDERS", "Provider", "Token", "host_of", "probed", "provider_for", "remember", "trusted"]
+__all__ = ["GENERIC", "PROVIDERS", "WORK_TOKEN_VARS", "Provider", "Token", "host_of", "probed", "provider_for",
+           "remember", "reset", "trusted"]
 
 PROVIDERS = {p.name: p for p in (GitHub(), GitLab(), Bitbucket(), AzureDevOps(), Gitea())}
 GENERIC = Provider()
+# every variable that explicitly chooses a work account: the only list of them (the page, the explicit-choice check and
+# the environment of child programs all use it; gitutil's pattern must match each one, which a test checks)
+WORK_TOKEN_VARS = ("WORK_TOKEN", *(v for p in PROVIDERS.values() for v in p.work_envs))
 
 KNOWN_HOSTS = {"github.com": "github", "gitlab.com": "gitlab", "bitbucket.org": "bitbucket",
                "dev.azure.com": "azure", "codeberg.org": "gitea", "gitea.com": "gitea", "try.gitea.io": "gitea"}
@@ -61,6 +65,13 @@ def probe(host):
     return "generic"
 
 
+def reset():
+    """Forget what this process looked up (each run starts from the saved state, not from an earlier run's guesses)."""
+    _cache.clear()
+    _learned.clear()
+    _probed.clear()
+
+
 def remember(hosts):
     """Seed what earlier runs learned by probing ({host: provider name})."""
     _learned.update({h.lower(): n for h, n in hosts.items()})
@@ -81,6 +92,8 @@ def provider_for(scope, use_probe=True):
             name = probe(host)
             if name is not None:
                 _learned[host] = _probed[host] = name
+        if name is None and not use_probe:
+            return GENERIC                       # not known yet: a later call that may probe must still probe
         _cache[scope] = PROVIDERS.get(name, GENERIC)
     return _cache[scope]
 

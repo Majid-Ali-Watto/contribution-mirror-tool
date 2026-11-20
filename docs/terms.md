@@ -37,7 +37,7 @@ By using the tool you confirm that you are responsible for:
 - **Third-party terms.** Your use of GitHub, GitLab, Bitbucket, Azure DevOps, Gitea/Forgejo or any other service remains
   subject to that service's own terms, acceptable-use rules and API limits. The tool makes requests with your credentials
   and counts as your activity.
-- **Your credentials and data.** You decide what goes into `config/.env` and keep it private. See [privacy](privacy.md)
+- **Your credentials and data.** You decide what goes into your settings file (`.env`) and keep it private. See [privacy](privacy.md)
   for exactly what the tool reads, writes and contacts.
 - **Your mirror.** Push to a repository you own, with personal credentials.
 

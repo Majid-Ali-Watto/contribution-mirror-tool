@@ -4,8 +4,8 @@ operating system has: systemd user timer (Linux), launchd agents (macOS), Task S
 The scheduler itself is the only record of what is set up: `current()` reads it back (is the login run on, is the
 daily run on, at what time), and `apply()` makes it match what you ask for, touching only what changed. So the command
 line and the setup page always agree, turning a run off really removes it, and changing the time never fires an
-unexpected run. Scheduled runs read config/.env and config/repos.json when they start, so settings saved later (by
-hand or on the setup page) are used without reinstalling."""
+unexpected run. Scheduled runs read the settings (.env) and the project list (repos.json) when they start, so
+settings saved later (by hand or on the setup page) are used without reinstalling."""
 import os
 import plistlib
 import posixpath
@@ -13,11 +13,10 @@ import re
 import subprocess
 import sys
 
-from .settings import LOG_DIR, PROJECT_ROOT
+from .settings import LOG_DIR, self_command
 
 NAME = "contribution-mirror"
 LABEL = "dev.contribution-mirror"
-ENTRY = os.path.join(PROJECT_ROOT, "src", "mirror.py")
 DEFAULT_TIME = "18:00"
 TASKS = (f"{NAME}-login", f"{NAME}-daily")
 
@@ -46,14 +45,20 @@ def parse_time(text):
 
 
 def _argv(python, startup_delay=0):
-    args = [python, "-I", ENTRY, "scheduled"]
+    args = self_command(python) + ["scheduled"]
     return args + (["--startup-delay", str(startup_delay)] if startup_delay else [])
+
+
+def systemd_word(arg):
+    """One ExecStart argument: double-quoted, with systemd's specifier character (%) and the quote escapes doubled, so
+    any folder name (spaces, %, quotes) reaches the program unchanged."""
+    return '"' + arg.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
 
 
 def render_systemd(python, time_of_day=DEFAULT_TIME, timezone="", login_delay_min=5, login=True, daily=True):
     """{filename: text} of the user service and timer (only the triggers that are on)."""
     hh, mm = parse_time(time_of_day)
-    exec_start = " ".join(f'"{a}"' for a in _argv(python))
+    exec_start = " ".join(systemd_word(a) for a in _argv(python))
     triggers = (f"OnStartupSec={login_delay_min}min\n" if login else "") + (
         f"OnCalendar=*-*-* {hh:02d}:{mm:02d}:00{' ' + timezone if timezone else ''}\nPersistent=true\n" if daily else "")
     what = " and ".join(w for w, on in (("at login", login), ("daily", daily)) if on)
@@ -80,7 +85,7 @@ def render_windows(python, time_of_day=DEFAULT_TIME, login_delay_min=5):
     """schtasks argument lists: one task at logon (delayed), one daily. pythonw avoids a console window."""
     hh, mm = parse_time(time_of_day)
     exe = python[:-len("python.exe")] + "pythonw.exe" if python.lower().endswith("python.exe") else python
-    run = " ".join(f'"{a}"' for a in [exe, "-I", ENTRY, "scheduled"])
+    run = " ".join(f'"{a}"' for a in self_command(exe) + ["scheduled"])
     return [["schtasks", "/Create", "/F", "/TN", TASKS[0], "/SC", "ONLOGON", "/DELAY", f"{login_delay_min:04d}:00", "/TR", run],
             ["schtasks", "/Create", "/F", "/TN", TASKS[1], "/SC", "DAILY", "/ST", f"{hh:02d}:{mm:02d}", "/TR", run]]
 

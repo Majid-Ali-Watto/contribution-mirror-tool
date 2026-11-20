@@ -56,6 +56,6 @@ Each run waits up to about 5 minutes for the network, syncs, and shows a notific
   start" option is not enabled by the simple task this tool creates. On macOS and Windows the run at login covers that
   gap, so a day is rarely missed.
 - On Windows git marks its pack files read-only, so a plain delete of the temporary clone would fail and leave it
-  behind. The tool handles this (and has a test for it), but if you ever see `mirror-scan-*` folders in your temp
-  directory, they are safe to delete.
-- Notifications are best effort everywhere: if the tool is missing the run still works and the result is in `logs/mirror.log`.
+  behind. The tool handles this (and has a test for it), but if you ever see `mirror-scan-*` folders in the `tmp/` folder of
+  your log folder, they are safe to delete (the next run removes them).
+- Notifications are best effort everywhere: if the tool is missing the run still works and the result is in your `mirror.log`.

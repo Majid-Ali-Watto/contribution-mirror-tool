@@ -79,9 +79,9 @@ class MirrorOnAnyHost(Isolated):
                 seen.update(args=args, env=env)
             provider = PROVIDERS[name]
             host = push.real_host(expected)
-            with self.subTest(host=name), mock.patch.object(type(provider), "cli_tokens", lambda s, scope, only_user=None: iter([Token("cli", "SECRET")])), \
+            with self.subTest(host=name), mock.patch.object(type(provider), "cli_tokens", lambda s, scope, only_user=None: iter([])), \
                     mock.patch.object(push, "run_git", fake_run_git), mock.patch.object(push, "_git", return_value=(0, "", "")), \
-                    mock.patch.object(push, "helper_token", lambda h: None), \
+                    mock.patch.object(push, "helper_token", lambda h: Token("git-credential", "SECRET")), \
                     mock.patch.object(push, "_token_owns", lambda *a: True):
                 self.assertIsNone(push._push_with_token(self.cfg(expected)))
             self.assertIn(https, seen["args"])

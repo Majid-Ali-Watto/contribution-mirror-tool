@@ -19,10 +19,8 @@ help: ## show the targets
 	@echo
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-zA-Z_-]*:.*## / {printf "  make %-17s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: ## create config/.env and config/repos.json from the templates (never overwrites)
-	@test -f config/.env || { cp config/.env.example config/.env && chmod 600 config/.env && echo "created config/.env"; }
-	@test -f config/repos.json || { cp config/repos.example.json config/repos.json && echo "created config/repos.json"; }
-	@echo "Fill them in, or use: make ui"
+setup: ## create your settings (.env) and project list (repos.json) from the templates, show where (never overwrites)
+	$(MIRROR) setup
 
 ui: ## open the setup and sync page in your browser
 	$(MIRROR) ui
@@ -57,5 +55,5 @@ test: ## run all tests (offline, needs only Python and git)
 check: test ## the tests, plus a byte-compile of every source file
 	$(PYTHON) -m compileall -q src tests
 
-clean: ## remove Python caches (never touches config/ or logs/)
+clean: ## remove Python caches (never touches your settings or logs)
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

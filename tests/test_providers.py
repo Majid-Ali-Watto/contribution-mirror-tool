@@ -282,6 +282,26 @@ class ProbeMemory(unittest.TestCase):
             self.assertEqual(providers.provider_for("code.corp.example").name, "gitea")
             probe.assert_not_called()
 
+    def test_a_lookup_without_probing_does_not_stop_a_later_probe(self):
+        with mock.patch.object(providers, "probe", return_value="gitea") as probe:
+            self.assertEqual(providers.provider_for("code.corp.example", use_probe=False).name, "generic")
+            probe.assert_not_called()
+            self.assertEqual(providers.provider_for("code.corp.example").name, "gitea")
+
+    def test_reset_forgets_this_process_lookups(self):
+        with mock.patch.object(providers, "probe", return_value="gitea"):
+            providers.provider_for("code.corp.example")
+        providers.reset()
+        self.assertEqual((providers._cache, providers._learned, providers.probed()), ({}, {}, {}))
+
+    def test_every_work_token_variable_is_kept_from_child_programs(self):
+        from contribution_mirror import gitutil
+        self.assertEqual(providers.WORK_TOKEN_VARS[0], "WORK_TOKEN")
+        for name in providers.WORK_TOKEN_VARS:
+            self.assertRegex(name, gitutil._SECRET_VARS)
+        for p in PROVIDERS.values():
+            self.assertTrue(set(p.work_envs) <= set(providers.WORK_TOKEN_VARS), p.name)
+
     def test_offline_is_not_remembered(self):
         with mock.patch.object(providers, "probe", return_value=None):
             self.assertEqual(providers.provider_for("code.corp.example").name, "generic")

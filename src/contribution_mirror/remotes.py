@@ -57,7 +57,12 @@ def repo_key(url):
     return repo_path(url).lower()
 
 
-_hosts = {}
+_hosts = {}          # ssh host alias -> real host (`ssh -G`), for this run
+
+
+def reset():
+    """Forget the ssh lookups of an earlier run in this process (the ssh config may have changed)."""
+    _hosts.clear()
 
 
 def is_ssh_url(url):

@@ -28,8 +28,8 @@ class Activity(unittest.TestCase):
     def test_timestamps_are_normalised_and_accounts_recorded(self):
         fetch = lambda api, login, repos, since: (["2026-01-01T10:00:00.1234567+05:00"], ["2026-01-02T00:00:00Z"] * 2)
         (items, who, _), out, _ = self.run_activity({"github.com": pick("github.com", "me", fetch)}, {"github.com": ["o/r"]})
-        self.assertEqual(dict(items), {"github-api:pull-requests": Counter({"2026-01-01T05:00:00Z": 1}),
-                                       "github-api:reviews": Counter({"2026-01-02T00:00:00Z": 2})})
+        self.assertEqual(dict(items), {"api:pull-requests": Counter({"2026-01-01T05:00:00Z": 1}),
+                                       "api:reviews": Counter({"2026-01-02T00:00:00Z": 2})})
         self.assertEqual(who, {"github.com": ("me", "test")})
         self.assertIn("github.com (Fake) as me via test", out)
 
@@ -38,7 +38,7 @@ class Activity(unittest.TestCase):
         f2 = lambda api, login, repos, since: (["2026-02-01T00:00:00Z"], ["2026-02-02T00:00:00Z"])
         picks = {"github.com": pick("github.com", "me", f1), "gitlab.com": pick("gitlab.com", "me2", f2)}
         (items, who, _), out, _ = self.run_activity(picks, {"github.com": ["a/b"], "gitlab.com": ["g/p"]})
-        self.assertEqual(sum(dict(items)["github-api:pull-requests"].values()), 2)
+        self.assertEqual(sum(dict(items)["api:pull-requests"].values()), 2)
         self.assertEqual(who, {"github.com": ("me", "test"), "gitlab.com": ("me2", "test")})
 
     def test_hosts_without_review_data_say_so(self):
@@ -75,7 +75,7 @@ class Activity(unittest.TestCase):
         ok = lambda api, login, repos, since: (["2026-01-01T00:00:00Z"], [])
         picks = {"gitlab.com": pick("gitlab.com", "me", boom), "github.com": pick("github.com", "me", ok)}
         (items, done, _), _, err = self.run_activity(picks, {"gitlab.com": ["g/p"], "github.com": ["o/r"]})
-        self.assertEqual(sum(dict(items)["github-api:pull-requests"].values()), 1)
+        self.assertEqual(sum(dict(items)["api:pull-requests"].values()), 1)
         self.assertEqual(done, {"github.com": ("me", "test")})          # the failed host is re-checked in full next time
         self.assertIn("gitlab.com failed", err)
 

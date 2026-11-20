@@ -54,7 +54,7 @@ and on GitHub only commits on the default branch count.
 
 ## Listing projects
 
-Any URL `git clone` accepts, or a local path, in `config/repos.json`:
+Any URL `git clone` accepts, or a local path, in your project list (`repos.json`):
 
 ```json
 {
@@ -80,7 +80,7 @@ Notes per host:
 ## Tokens
 
 Normally nothing to set: the tool uses what is already on your machine (see [authentication](authentication.md)). To
-choose an account explicitly, set one of these in `config/.env` (or the environment):
+choose an account explicitly, set one of these in your settings file (`.env`), or in the environment:
 
 | Host | Explicit (forces the account) | Also read automatically |
 | --- | --- | --- |
@@ -103,8 +103,8 @@ work token by claiming to be GitLab.
 ## Self-hosted servers
 
 The host is recognised by name for the public ones. For a self-hosted server the tool asks it what it is (a quick
-request to its public version endpoint; a definite answer is remembered in `logs/api-state.json`). If that is blocked
-or wrong, or you want tokens from `config/.env` used there, say what it is:
+request to its public version endpoint; a definite answer is remembered in `api-state.json` in your log folder). If that is blocked
+or wrong, or you want tokens from your settings file used there, say what it is:
 
 ```
 GIT_HOST_PROVIDERS=git.corp.com=gitlab,code.corp.com=gitea,github.corp.com=github

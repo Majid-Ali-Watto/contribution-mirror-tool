@@ -71,7 +71,7 @@ def main(argv):
     try:
         cfg = load_config()
     except EnvFileError as e:
-        failure("cannot read config/.env", str(e))
+        failure("cannot read your settings (.env)", str(e))
         return 1
     log_dir = cfg.log_dir or LOG_DIR
     hosts = list(dict.fromkeys([real_host(cfg.expected_remote), "github.com"]))

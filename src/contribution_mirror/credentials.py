@@ -8,7 +8,7 @@ from typing import NamedTuple
 
 from .gitutil import child_env
 from .httpapi import Api
-from .providers import Token, host_of, provider_for, trusted
+from .providers import WORK_TOKEN_VARS, Token, host_of, provider_for, trusted
 from .providers.base import Provider
 
 
@@ -42,9 +42,7 @@ def helper_token(host):
 
 def explicit_choice(gh_user=None):
     """True if the user chose an account on purpose (any WORK_*TOKEN variable, or a gh account name)."""
-    names = ["WORK_TOKEN", "WORK_GITHUB_TOKEN", "WORK_GITLAB_TOKEN", "WORK_BITBUCKET_TOKEN",
-             "WORK_AZURE_DEVOPS_TOKEN", "WORK_GITEA_TOKEN"]
-    return bool(gh_user) or any(os.environ.get(n, "").strip() for n in names)
+    return bool(gh_user) or any(os.environ.get(n, "").strip() for n in WORK_TOKEN_VARS)
 
 
 def env_tokens(provider, scope):

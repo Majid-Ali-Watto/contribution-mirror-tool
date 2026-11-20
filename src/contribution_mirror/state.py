@@ -1,4 +1,4 @@
-"""The saved state (logs/api-state.json): per host, the account used and when its PR/review scan last succeeded
+"""The saved state (api-state.json in the log folder): per host, the account used and when its PR/review scan last succeeded
 (so the next scan is incremental), and what each self-hosted server turned out to be (so it is not probed every run).
 
     {"version": 2,
@@ -11,6 +11,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+from .fsutil import write_private
 from .settings import API_MARGIN_DAYS, API_WINDOW_DAYS
 
 VERSION = 2
@@ -76,8 +77,4 @@ def save_state(log_dir, done, started, hosts=None):
                          "last_success": started.strftime("%Y-%m-%dT%H:%M:%S+00:00")}
     if hosts:
         st.setdefault("hosts", {}).update(hosts)
-    os.makedirs(log_dir, exist_ok=True)
-    tmp = state_path(log_dir) + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(st, f, indent=1, sort_keys=True)
-    os.replace(tmp, state_path(log_dir))
+    write_private(state_path(log_dir), json.dumps(st, indent=1, sort_keys=True))   # names logins and hosts

@@ -62,8 +62,34 @@ class RepoList(unittest.TestCase):
         self.assertEqual((local, urls), ([self.local], []))      # found by scanning the folder
 
     def test_mirror_inside_a_source_repo_is_refused(self):
-        with self.assertRaises(SystemExit):
+        with self.assertRaisesRegex(repos.ReposFileError, "must not be inside a source repo"):
             repos.select_sources([self.local], self.write({"repos": []}), os.path.join(self.local, "mirror"))
+
+    def test_a_mirror_reached_through_a_symlink_is_still_inside(self):
+        link = os.path.join(self.tmp.name, "link")
+        try:
+            os.symlink(self.local, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        with self.assertRaisesRegex(repos.ReposFileError, "must not be inside a source repo"):
+            repos.select_sources([self.local], self.write({"repos": []}), os.path.join(link, "mirror"))
+
+    def test_without_a_project_list_nothing_is_guessed(self):
+        """No list and no --src is an error that says what to do, not a scan of every neighbouring folder."""
+        with self.assertRaisesRegex(repos.ReposFileError, "mirror.py setup"):
+            repos.select_sources(None, os.path.join(self.tmp.name, "missing.json"), os.path.join(self.tmp.name, "m"))
+
+    def test_folder_search_finds_worktrees_and_skips_hidden_folders(self):
+        base = os.path.join(self.tmp.name, "base")
+        a = _path.make_repo(os.path.join(base, "a"), [])
+        _path.make_repo(os.path.join(base, ".hidden", "b"), [])
+        _path.make_repo(os.path.join(base, "node_modules", "c"), [])
+        wt = os.path.join(base, "wt")
+        os.makedirs(wt)
+        with open(os.path.join(wt, ".git"), "w") as f:
+            f.write("gitdir: elsewhere\n")                       # a worktree or submodule
+        self.assertEqual(sorted(repos.find_repos([base])), sorted([a, wt]))
+        self.assertEqual(sorted(repos.find_under(base)[0]), sorted([a, wt]))   # the page finds the same
 
     def test_group_by_scope_uses_the_real_host_behind_aliases(self):
         subprocess.run(["git", "-C", self.local, "remote", "add", "origin", "git@github-work:Org/Clone.git"],

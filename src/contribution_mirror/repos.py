@@ -1,17 +1,20 @@
-"""Which projects to scan: the repos file (paths and URLs), folder scanning, and grouping by host."""
+"""Which projects to scan: the project list (repos.json: paths and URLs), folder scanning, and grouping by host.
+The command line and the setup page read, check and write the list through the same functions here."""
 import json
 import os
-import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
+from .fsutil import write_private
 from .gitutil import origin_url
-from .logsetup import log, warn
-from .remotes import is_url, repo_key, repo_path, scope_of
-from .settings import SIBLINGS
+from .logsetup import warn
+from .remotes import is_url, repo_key, repo_path, scope_of, url_host
+
+SKIP_DIRS = ("node_modules",)          # never searched for repos (hidden folders are skipped too)
 
 
 class ReposFileError(ValueError):
-    """config/repos.json cannot be used (bad JSON, or not {"repos": [...]})."""
+    """The project list cannot be used (missing, bad JSON, or not {"repos": [...]})."""
 
 
 def origin_urls(repos):
@@ -22,13 +25,18 @@ def origin_urls(repos):
         return dict(zip(repos, ex.map(origin_url, repos)))
 
 
-def load_repos_file(path):
-    """Projects from a JSON file: {"repos": [...]}. Each entry is a local clone path OR a git URL (ssh or https;
-    the older "remote_repos" list of URLs is still accepted, with a note). No directory walking.
-    Returns (local repo paths, URLs to scan from a temporary clone)."""
+def is_repo(path):
+    """A git working tree: a `.git` folder, or a `.git` file (a worktree or submodule)."""
+    return os.path.exists(os.path.join(path, ".git"))
+
+
+def read_entries(path):
+    """(entries as written, whether the older "remote_repos" key is used). Raises ReposFileError."""
     try:
         with open(path, encoding="utf-8-sig") as f:              # -sig: a BOM from Windows editors is fine too
             cfg = json.load(f)
+    except OSError as e:
+        raise ReposFileError(f"{path} cannot be read: {e.strerror or e}") from None
     except ValueError as e:
         raise ReposFileError(f"{path} is not valid JSON: {e}") from None
     listed = cfg.get("repos") if isinstance(cfg, dict) else None
@@ -36,46 +44,108 @@ def load_repos_file(path):
     if not isinstance(listed, list) or not isinstance(extra, list) \
             or not all(isinstance(x, str) for x in listed + extra):
         raise ReposFileError(f'{path} must look like {{"repos": ["/path/to/clone", "git@host:org/repo.git"]}}')
-    if extra:
+    return list(dict.fromkeys(listed + extra)), bool(extra)
+
+
+def save_entries(path, entries):
+    """Write the project list (owner-only, atomically)."""
+    write_private(path, json.dumps({"repos": entries}, indent=2, ensure_ascii=False) + "\n")
+
+
+def clean_entries(entries):
+    """Submitted entries -> the list to save: trimmed, one line each, no blanks or duplicates. Raises ValueError."""
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        raise ValueError("expected a list of paths and URLs")
+    out = []
+    for e in entries:
+        e = e.strip()
+        if "\n" in e or "\r" in e:
+            raise ValueError("an entry must be one line")
+        if e and e not in out:
+            out.append(e)
+    return out
+
+
+def check_entry(entry):
+    """What the page shows next to one entry. Never touches the network."""
+    if is_url(entry):
+        return {"entry": entry, "kind": "url", "ok": True, "detail": url_host(entry) or "URL"}
+    path = os.path.abspath(os.path.expanduser(entry))
+    if is_repo(path):
+        return {"entry": entry, "kind": "path", "ok": True, "detail": "git repo"}
+    detail = "not a git repo" if os.path.isdir(path) else "folder not found"
+    return {"entry": entry, "kind": "path", "ok": False, "detail": detail}
+
+
+def load_repos_file(path):
+    """Projects from the list: each entry is a local clone path OR a git URL (ssh or https; the older "remote_repos"
+    list of URLs is still accepted, with a note). No directory walking.
+    Returns (local repo paths, URLs to scan from a temporary clone)."""
+    entries, legacy = read_entries(path)
+    if legacy:
         print(f'note: {path} uses the older "remote_repos" key. It still works; URLs can simply go in "repos" '
-              'together with paths (see config/repos.example.json).')
+              'together with paths.')
     repos, urls = [], []
-    for r in listed:
+    for r in entries:
         if is_url(r):
             urls.append(r.strip())
             continue
         r = os.path.abspath(os.path.expanduser(r))
-        if not os.path.exists(os.path.join(r, ".git")):
+        if not is_repo(r):
             warn(f"skipping '{r}' (not a git repo)")
         elif r not in repos:
             repos.append(r)
-    return repos, list(dict.fromkeys(urls + [u.strip() for u in extra]))
+    return repos, list(dict.fromkeys(urls))
+
+
+def walk_repos(root):
+    """Git repos at or under `root`, not inside each other, skipping hidden folders and node_modules."""
+    for dp, dn, _ in os.walk(root):
+        if is_repo(dp):
+            yield dp
+            dn[:] = []                                           # don't descend into repos
+        else:
+            dn[:] = sorted(d for d in dn if d not in SKIP_DIRS and not d.startswith("."))
+
 
 def find_repos(roots):
     for root in roots:
-        if os.path.isdir(os.path.join(root, ".git")):
-            yield root
-            continue
-        for dp, dn, _ in os.walk(root):
-            if ".git" in dn:
-                yield dp
-                dn[:] = []  # don't descend into repos
-            dn[:] = [d for d in dn if d not in ("node_modules", ".git")]
+        yield from walk_repos(root)
+
+
+def find_under(folder, limit=300, seconds=4.0):
+    """Git repos under `folder` for the page, stopping after `limit` results or a few seconds so a huge folder cannot
+    hang it. Returns (paths, complete). Raises ValueError for a missing folder."""
+    folder = os.path.abspath(os.path.expanduser(folder))
+    if not os.path.isdir(folder):
+        raise ValueError(f"folder not found: {folder}")
+    deadline, found = time.monotonic() + seconds, []
+    for repo in walk_repos(folder):
+        found.append(repo)
+        if len(found) >= limit or time.monotonic() > deadline:
+            return found, False
+    return found, True
+
+
+def _inside(path, folder):
+    path, folder = os.path.normcase(os.path.realpath(path)), os.path.normcase(os.path.realpath(folder))
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
 
 def select_sources(src, repos_file, mirror):
-    """Local repo paths and URL entries to scan. Precedence: --src folders > the repos file > every sibling
-    folder (only if the repos file does not exist). The mirror itself is never scanned."""
+    """Local repo paths and URL entries to scan: the --src folders if given, else the project list. The mirror itself
+    is never scanned, and a mirror inside a source repo is refused (symlinks resolved)."""
     remotes = []
     if src:
         repos = [os.path.abspath(r) for r in find_repos(src)]
     elif os.path.exists(repos_file):
         repos, remotes = load_repos_file(repos_file)
     else:
-        repos = [os.path.abspath(r) for r in find_repos([SIBLINGS])]
-    if any(mirror == r or mirror.startswith(r + os.sep) for r in repos):
-        log.error("mirror must not be inside a source repo")
-        sys.exit("mirror must not be inside a source repo")
-    repos = [r for r in repos if r != mirror]
+        raise ReposFileError(f"no project list: {repos_file} does not exist. Create it with `mirror.py setup` (or on "
+                             "the page, `mirror.py ui`), or name folders with --src")
+    if any(_inside(mirror, r) and os.path.realpath(mirror) != os.path.realpath(r) for r in repos):
+        raise ReposFileError("the mirror must not be inside a source repo")
+    repos = [r for r in repos if os.path.realpath(r) != os.path.realpath(mirror)]
     if remotes:  # a URL that is already cloned locally and listed would be counted twice
         local_keys = {repo_key(u) for u in origin_urls(repos).values()}
         remotes = [u for u in remotes if repo_key(u) not in local_keys]

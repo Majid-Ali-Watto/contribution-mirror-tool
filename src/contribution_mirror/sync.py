@@ -14,10 +14,10 @@ from .settings import LOG_DIR, SIBLINGS
 
 
 def resolve_folders(names):
-    """Folder names are looked up as siblings of the project folder first, then as paths."""
+    """Folder names are looked up as siblings of the project folder first (in a checkout), then as paths."""
     out = []
     for name in names:
-        for candidate in (os.path.join(SIBLINGS, name), name):
+        for candidate in ([os.path.join(SIBLINGS, name)] if SIBLINGS else []) + [name]:
             if os.path.isdir(candidate):
                 out.append(os.path.abspath(candidate))
                 break

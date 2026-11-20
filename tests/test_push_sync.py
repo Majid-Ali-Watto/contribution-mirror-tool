@@ -93,7 +93,7 @@ class SyncEndToEnd(SyncSetup):
         self.assertEqual((code, "folder not found" in err), (1, True))
         os.environ["MIRROR_ENV_FILE"] = os.path.join(self.tmp.name, "nope.env")
         code, _, err = self.run_sync(self.work)
-        self.assertEqual((code, "config/.env.example" in err), (1, True))
+        self.assertEqual((code, "mirror.py setup" in err), (1, True))
 
 
 class PushFallbacks(unittest.TestCase):
@@ -102,7 +102,10 @@ class PushFallbacks(unittest.TestCase):
     def test_ssh_key_applies_to_the_push_only_and_survives_windows_paths(self):
         self.assertNotIn("GIT_SSH_COMMAND", push._push_env("") if "GIT_SSH_COMMAND" not in os.environ else {})
         env = push._push_env("C:\\Users\\me\\.ssh\\id key")
-        self.assertEqual(env["GIT_SSH_COMMAND"], 'ssh -i "C:/Users/me/.ssh/id key" -o IdentitiesOnly=yes -o BatchMode=yes')
+        self.assertEqual(env["GIT_SSH_COMMAND"], "ssh -i 'C:/Users/me/.ssh/id key' -o IdentitiesOnly=yes -o BatchMode=yes")
+        env = push._push_env("/k/it's $(touch x) `y` \"z\".key")             # nothing in the path is run by sh
+        self.assertEqual(env["GIT_SSH_COMMAND"].split(" -o ")[0],
+                         "ssh -i '/k/it'\\''s $(touch x) `y` \"z\".key'")
 
     def test_normal_push_failure_falls_back_to_a_token(self):
         calls = []
@@ -155,6 +158,18 @@ class TheFallbackTokenMustOwnTheMirror(unittest.TestCase):
         self.assertTrue(self.owns("Me"))
         self.assertFalse(self.owns("me-at-work"))
         self.assertTrue(self.owns("anyone", source="gh:me"))          # gh CLI token asked for by the owner's name
+
+    def test_where_a_tokens_account_cannot_be_checked_only_the_hosts_own_git_login_is_used(self):
+        """Bitbucket, Azure DevOps, unknown hosts: a repo's owner is not a login, so a token from a variable or a CLI
+        (maybe the work account's) is never tried; only the credential helper's entry for that host, as `git push`."""
+        from contribution_mirror.providers import PROVIDERS, Token
+        bitbucket = PROVIDERS["bitbucket"]
+        cfg = Config([], "Me", "m@p.com", "git@bitbucket.org:me/mirror.git", "/m")
+        with mock.patch.dict(os.environ, {"BITBUCKET_TOKEN": "work-token"}), \
+                mock.patch.object(type(bitbucket), "cli_tokens", lambda s, scope, only_user=None: iter([Token("cli", "c")])), \
+                mock.patch.object(push, "helper_token", lambda h: Token("git-credential", "mine")):
+            _, _, _, tokens = push._mirror_tokens(cfg)
+        self.assertEqual([t.source for t in tokens], ["git-credential"])
 
     def test_errors_never_show_a_token_from_a_url(self):
         cfg = Config([], "Me", "m@p.com", "https://me:SECRET@github.com/me/mirror.git", "/m")

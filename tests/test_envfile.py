@@ -56,11 +56,11 @@ class Load(unittest.TestCase):
         self.assertEqual(env, {"A": "from-shell", "B": "from-file"})
 
     def test_missing_file_has_a_helpful_message(self):
-        with self.assertRaisesRegex(envfile.EnvFileError, r"copy config/\.env\.example"):
+        with self.assertRaisesRegex(envfile.EnvFileError, r"run `mirror\.py setup`"):
             envfile.load(os.path.join(self.tmp.name, "nope"), {})
 
     def test_require_names_what_is_missing(self):
-        with self.assertRaisesRegex(envfile.EnvFileError, "missing in config/.env: X Y"):
+        with self.assertRaisesRegex(envfile.EnvFileError, "missing in your .env settings: X Y"):
             envfile.require(["X", "Y", "Z"], {"Z": "1"})
 
 
