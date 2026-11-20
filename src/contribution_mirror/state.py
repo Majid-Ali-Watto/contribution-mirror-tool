@@ -1,5 +1,6 @@
-"""The saved state (api-state.json in the log folder): per host, the account used and when its PR/review scan last succeeded
-(so the next scan is incremental), and what each self-hosted server turned out to be (so it is not probed every run).
+"""The saved state (api-state.json in the log folder): per host, the account used and when its PR/review scan last
+succeeded (so the next scan is incremental), and what each self-hosted server turned out to be (so it is not probed
+every run).
 
     {"version": 2,
      "scopes": {"github.com": {"account": "me-work", "source": "gh:me-work", "last_success": "2026-...+00:00"}},

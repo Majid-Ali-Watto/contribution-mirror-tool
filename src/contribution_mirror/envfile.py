@@ -4,6 +4,7 @@ import os
 import re
 
 from .fsutil import write_private
+from .settings import command_name
 
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -47,7 +48,8 @@ def load(path, environ=None):
     Returns the parsed {key: value}."""
     environ = os.environ if environ is None else environ
     if not os.path.isfile(path):
-        raise EnvFileError(f"missing {path} -- run `mirror.py setup` (or open the page: `mirror.py ui`) and fill it in")
+        cmd = command_name()
+        raise EnvFileError(f"missing {path} -- run `{cmd} setup` (or open the page: `{cmd} ui`) and fill it in")
     with open(path, encoding="utf-8") as f:
         values = parse(f.read(), path)
     for key, value in values.items():

@@ -12,7 +12,7 @@ from .credentials import Creds
 from .envfile import EnvFileError
 from .logsetup import redact
 from .repos import ReposFileError, group_by_scope, origin_urls, select_sources
-from .settings import LOG_DIR, REPOS_FILE
+from .settings import LOG_DIR, REPOS_FILE, command_name
 from .state import known_hosts, load_state, preferred_accounts
 
 
@@ -44,7 +44,7 @@ def report(cfg, recheck=False, sources=None):
 
 
 def main(argv):
-    p = argparse.ArgumentParser(prog="mirror.py accounts")
+    p = argparse.ArgumentParser(prog=f"{command_name()} accounts")
     p.add_argument("--json", action="store_true", help="machine-readable output (used by the setup page)")
     p.add_argument("--recheck", action="store_true", help="compare all logins again instead of reusing the last one")
     a = p.parse_args(argv)

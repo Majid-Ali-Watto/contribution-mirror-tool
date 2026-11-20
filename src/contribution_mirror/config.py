@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from . import envfile
 from .fsutil import make_private, private_dir, write_private
 from .timeutil import parse_day
-from .settings import ENV_FILE, ENV_TEMPLATE, LOG_DIR, REPOS_FILE, REPOS_TEMPLATE
+from .settings import ENV_FILE, ENV_TEMPLATE, LOG_DIR, REPOS_FILE, REPOS_TEMPLATE, command_name
 
 DEFAULT_ENV_FILE = ENV_FILE
 REQUIRED = ("WORK_EMAIL", "PERSONAL_NAME", "PERSONAL_EMAIL", "EXPECTED_REMOTE")
@@ -152,7 +152,7 @@ def setup_main(argv):
     """`setup`: create the settings file and the project list from the templates (never overwrites), owner-only, and
     print where the settings, the project list and the logs are."""
     import argparse
-    argparse.ArgumentParser(prog="mirror.py setup", description=setup_main.__doc__).parse_args(argv)
+    argparse.ArgumentParser(prog=f"{command_name()} setup", description=setup_main.__doc__).parse_args(argv)
     for path, template in ((env_path(), ENV_TEMPLATE), (repos_path(), REPOS_TEMPLATE)):
         if os.path.exists(path):
             make_private(path)
@@ -167,6 +167,6 @@ def setup_main(argv):
     print(f"logs:    {os.path.abspath(os.path.expanduser(log_dir)) if log_dir else LOG_DIR}")
     others = [n for n in list_profiles() if n]
     if others:
-        print(f"profiles: default, {', '.join(others)}  (choose one with `mirror.py --profile NAME ...`)")
-    print("Fill them in, or use the page: mirror.py ui")
+        print(f"profiles: default, {', '.join(others)}  (choose one with `{command_name()} --profile NAME ...`)")
+    print(f"Fill them in, or use the page: {command_name()} ui")
     return 0

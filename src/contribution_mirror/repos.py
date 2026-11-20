@@ -9,6 +9,7 @@ from .fsutil import write_private
 from .gitutil import origin_url
 from .logsetup import warn
 from .remotes import is_url, repo_key, repo_path, scope_of, url_host
+from .settings import command_name
 
 SKIP_DIRS = ("node_modules",)          # never searched for repos (hidden folders are skipped too)
 
@@ -141,8 +142,8 @@ def select_sources(src, repos_file, mirror):
     elif os.path.exists(repos_file):
         repos, remotes = load_repos_file(repos_file)
     else:
-        raise ReposFileError(f"no project list: {repos_file} does not exist. Create it with `mirror.py setup` (or on "
-                             "the page, `mirror.py ui`), or name folders with --src")
+        raise ReposFileError(f"no project list: {repos_file} does not exist. Create it with `{command_name()} setup` "
+                             f"(or on the page, `{command_name()} ui`), or name folders with --src")
     if any(_inside(mirror, r) and os.path.realpath(mirror) != os.path.realpath(r) for r in repos):
         raise ReposFileError("the mirror must not be inside a source repo")
     repos = [r for r in repos if os.path.realpath(r) != os.path.realpath(mirror)]

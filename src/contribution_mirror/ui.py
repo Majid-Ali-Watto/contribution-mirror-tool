@@ -38,7 +38,7 @@ from .push import check_remote
 from .providers import WORK_TOKEN_VARS
 from .remotes import is_url, repo_path
 from .report import parse_result, read_logs
-from .settings import ENV_TEMPLATE, LOG_DIR, REPOS_FILE, self_command
+from .settings import ENV_TEMPLATE, LOG_DIR, REPOS_FILE, command_name, self_command
 from .timeutil import parse_day
 
 LOOPBACK = "127.0.0.1"
@@ -259,6 +259,7 @@ class App:
             "profile": self.profile,
             "profiles": self.profiles(),
             "version": __version__,
+            "command": command_name(),
             "job": self.job.view(len(self.job.lines)) if self.job else None,
         }
 
@@ -454,7 +455,7 @@ def make_handler(app, token, port, launch=None):
                 return self._send(403, {"error": "this link is not valid: open the link printed in the terminal"})
             if not launch.take():
                 return self._send(403, {"error": "this link was already used, so someone else may have it: the page "
-                                                 "has stopped. Start it again with `mirror.py ui`"})
+                                                 f"has stopped. Start it again with `{command_name()} ui`"})
             return self._send(200, {"token": token})
 
         def do_POST(self):
@@ -530,7 +531,7 @@ def make_server(app=None, port=0):
 
     def reused():
         print("warning: the browser link was used a second time, so another program or person had it; the page is "
-              "stopping. Start it again with `mirror.py ui`.", file=sys.stderr, flush=True)
+              f"stopping. Start it again with `{command_name()} ui`.", file=sys.stderr, flush=True)
         threading.Thread(target=httpd.shutdown, daemon=True).start()
 
     launch = Launch(reused)
@@ -542,7 +543,8 @@ def make_server(app=None, port=0):
 
 
 def main(argv):
-    p = argparse.ArgumentParser(prog="mirror.py ui", description="Open the setup and sync page in your browser.")
+    p = argparse.ArgumentParser(prog=f"{command_name()} ui",
+                                description="Open the setup and sync page in your browser.")
     p.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: any free port)")
     p.add_argument("--no-browser", action="store_true", help="only print the link, do not open a browser")
     a = p.parse_args(argv)

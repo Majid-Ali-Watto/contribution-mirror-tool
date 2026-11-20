@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 
-from .settings import LOG_DIR, self_command
+from .settings import LOG_DIR, command_name, self_command
 
 NAME = "contribution-mirror"
 LABEL = "dev.contribution-mirror"
@@ -163,7 +163,8 @@ def plan(action, platform=None, python=None, time_of_day=DEFAULT_TIME, timezone=
         if action == "uninstall":
             return [], [Cmd(["schtasks", "/Delete", "/F", "/TN", n], may_fail=True) for n in TASKS], []
         return [], [Cmd(["schtasks", "/Query", "/TN", n], may_fail=True) for n in TASKS], []
-    raise SystemExit(f"automatic runs are not supported on '{plat}'; run `mirror.py sync` from your own scheduler")
+    raise SystemExit(f"automatic runs are not supported on '{plat}'; run `{command_name()} sync` from your own "
+                     "scheduler")
 
 
 def _read(path):
@@ -271,7 +272,7 @@ def describe(state):
 
 def main(argv):
     import argparse
-    p = argparse.ArgumentParser(prog="mirror.py schedule")
+    p = argparse.ArgumentParser(prog=f"{command_name()} schedule")
     p.add_argument("action", choices=["install", "uninstall", "status"])
     p.add_argument("--time", default=DEFAULT_TIME, help="daily run time, HH:MM in local time (default 18:00)")
     p.add_argument("--timezone", default="", help="Linux only: timezone name for the daily run, e.g. Europe/London")

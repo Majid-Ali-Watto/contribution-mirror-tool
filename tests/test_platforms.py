@@ -80,6 +80,24 @@ class WhereThingsLive(unittest.TestCase):
         self.assertEqual(settings.user_dir("logs", "win32", {"LOCALAPPDATA": "L"}, home),
                          os.path.join("L", "contribution-mirror", "logs"))
 
+    def test_messages_name_the_command_the_user_actually_has(self):
+        """A checkout says `mirror.py ...`, an installed copy (pipx) `contribution-mirror ...`."""
+        import contextlib
+        import io
+        from contribution_mirror import config, envfile, settings
+        with unittest.mock.patch.object(settings, "IN_CHECKOUT", False):
+            self.assertEqual(settings.command_name(), "contribution-mirror")
+            with self.assertRaises(envfile.EnvFileError) as cm:
+                envfile.load(os.path.join(os.sep, "nonexistent", ".env"))
+            self.assertIn("run `contribution-mirror setup`", str(cm.exception))
+            self.assertNotIn("mirror.py", str(cm.exception))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                config.setup_main(["--help"])
+            self.assertIn("usage: contribution-mirror setup", out.getvalue())
+        with unittest.mock.patch.object(settings, "IN_CHECKOUT", True):
+            self.assertEqual(settings.command_name(), "mirror.py")
+
     def test_the_tool_restarts_itself_from_a_checkout_or_as_an_installed_package(self):
         from contribution_mirror import settings
         with unittest.mock.patch.object(settings, "IN_CHECKOUT", True):

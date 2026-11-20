@@ -51,6 +51,12 @@ ENV_TEMPLATE = os.path.join(TEMPLATES, "env.example")
 REPOS_TEMPLATE = os.path.join(TEMPLATES, "repos.example.json")
 
 
+def command_name():
+    """What the user types to run this tool, for messages and help: `mirror.py` (short for `python3 -I src/mirror.py`)
+    in a checkout, `contribution-mirror` when installed (pipx)."""
+    return "mirror.py" if IN_CHECKOUT else "contribution-mirror"
+
+
 def self_command(python=None, extra_flags=()):
     """How to start this tool again (the scheduler, the page's runs): the checkout's src/mirror.py, or the installed
     package. Always in isolated mode (-I), so nothing in the current folder can shadow a module. `extra_flags` are

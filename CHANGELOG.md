@@ -1,7 +1,15 @@
 # Changelog
 
-What changed in each version. `mirror.py --version` prints the version you have; the setup page shows it under its
-title. To update a checkout: `git pull`; an installed copy: `pipx install --force .` from an updated checkout.
+What changed in each version. `mirror.py --version` (`contribution-mirror --version` when installed) prints the
+version you have; the setup page shows it under its title. To update a checkout: `git pull`. An installed copy:
+`pipx install --force <wheel URL>` with the wheel of the newest release, or `pipx install --force .` from a checkout.
+
+## 1.1.1 (2026-11-21)
+
+### Fixed
+- An installed copy (`pipx install`) now names its own command in every message, help text and on the page:
+  `contribution-mirror setup`, `contribution-mirror ui`, ... instead of `mirror.py ...`, which only exists in a checkout.
+  The settings template says how to run a command either way.
 
 ## 1.1.0 (2026-11-21)
 

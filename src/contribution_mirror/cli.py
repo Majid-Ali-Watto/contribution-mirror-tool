@@ -17,7 +17,7 @@ from .report import RunResult, attribute, print_totals, summary
 from .repos import ReposFileError, group_by_scope, origin_urls, select_sources
 from .runlock import RunLocked, run_lock
 from .scan import clear_tmp, scan_all
-from .settings import LOG_DIR, REPOS_FILE
+from .settings import LOG_DIR, REPOS_FILE, command_name
 from .state import known_hosts, load_state, preferred_accounts, save_state
 from .timeutil import in_range, parse_day
 
@@ -30,8 +30,9 @@ def _day(text):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="mirror.py", description="Mirror contribution timestamps into an empty-commit repo. "
-                                f"Version {__version__}; `mirror.py --version` prints it.")
+    p = argparse.ArgumentParser(prog=command_name(),
+                                description="Mirror contribution timestamps into an empty-commit repo. "
+                                            f"Version {__version__}; `{command_name()} --version` prints it.")
     p.add_argument("--src", nargs="+",
                    help="repo(s) or folders containing repos (searched recursively). "
                         "Default: the exact projects listed in --repos-file")
@@ -216,5 +217,5 @@ def main(argv=None):
         print(redact(e), file=sys.stderr)
         return 1
     if not result.dry_run:
-        print("Review with `git log`, then push it yourself (or use `mirror.py sync`, which also pushes).")
+        print(f"Review with `git log`, then push it yourself (or use `{command_name()} sync`, which also pushes).")
     return 0

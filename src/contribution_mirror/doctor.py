@@ -23,7 +23,7 @@ from .report import read_logs
 from .repos import ReposFileError, check_entry, read_entries
 from .providers import provider_for
 from .remotes import real_host
-from .settings import LOG_DIR
+from .settings import LOG_DIR, command_name
 from .state import state_path
 
 OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
@@ -51,7 +51,7 @@ def check_settings(path):
     try:
         cfg = load_config(path)
     except envfile.EnvFileError as e:
-        fix = "run `mirror.py setup`, or fill it in on the page (mirror.py ui)"
+        fix = f"run `{command_name()} setup`, or fill it in on the page ({command_name()} ui)"
         return Check(FAIL, "Settings file", str(e), fix), None
     fix = _private_problem(path)
     if fix:
@@ -72,7 +72,7 @@ def check_projects(path, mirror):
     """([Check], local repo paths, URLs) for the project list."""
     if not os.path.exists(path):
         return [Check(FAIL, "Project list", f"{path} does not exist",
-                      "run `mirror.py setup`, or add projects on the page")], [], []
+                      f"run `{command_name()} setup`, or add projects on the page")], [], []
     try:
         entries, legacy = read_entries(path)
     except ReposFileError as e:
@@ -261,7 +261,7 @@ def check_schedule(state, logs, now=None):
     if not state.get("supported"):
         return Check(SKIP, "Automatic runs", f"not supported on '{state.get('platform')}'")
     if not (state.get("login") or state.get("daily")):
-        return Check(OK, "Automatic runs", "off: run `mirror.py sync` yourself, or turn them on in Schedule")
+        return Check(OK, "Automatic runs", f"off: run `{command_name()} sync` yourself, or turn them on in Schedule")
     runs = [r for r in logs.get("runs", []) if r.get("mode") == "apply"]
     last_ok = runs[-1]["time"] if runs else None
     failed = next((e for e in logs.get("entries", []) if e.get("level") == "ERROR"
@@ -329,7 +329,7 @@ LABELS = {OK: "[ ok ]", WARN: "[warn]", FAIL: "[FAIL]", SKIP: "[skip]"}
 
 
 def main(argv):
-    p = argparse.ArgumentParser(prog="mirror.py doctor", description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(prog=f"{command_name()} doctor", description=__doc__.split("\n\n")[0])
     p.add_argument("--json", action="store_true", help="machine-readable output (used by the setup page)")
     p.add_argument("--skip-schedule", action="store_true", help=argparse.SUPPRESS)   # the page checks it itself
     a = p.parse_args(argv)

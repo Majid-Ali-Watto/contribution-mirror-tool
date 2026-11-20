@@ -10,7 +10,7 @@ from .mirror_repo import ensure_repo, reconcile
 from .push import PushError, ensure_remote, fetch_mirror, mirror_host_note, push_mirror
 from .repos import ReposFileError
 from .runlock import RunLocked, run_lock
-from .settings import LOG_DIR, SIBLINGS
+from .settings import LOG_DIR, SIBLINGS, command_name
 
 
 def resolve_folders(names):
@@ -82,7 +82,7 @@ def run_sync(cfg, folders=(), dry_run=False, dates_out=""):
 def main(argv):
     """Command line of `sync`: [--dry-run] [--dates-out FILE] [folder ...]. Returns the exit code."""
     import argparse
-    p = argparse.ArgumentParser(prog="mirror.py sync", description="Mirror new activity and push it.")
+    p = argparse.ArgumentParser(prog=f"{command_name()} sync", description="Mirror new activity and push it.")
     p.add_argument("--dry-run", action="store_true", help="preview only: no commits, no push")
     p.add_argument("--dates-out", default="", help="also write the dates per day to this JSON file (calendar view)")
     p.add_argument("folders", nargs="*", help="only these folders (sibling folder names, or paths)")

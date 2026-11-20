@@ -45,7 +45,7 @@ async function api(path, body) {
   try {
     res = await fetch(path, opts);
   } catch (_) {
-    throw new Error("The page lost its connection to the tool. Is `mirror.py ui` still running?");
+    throw new Error(`The page lost its connection to the tool. Is \`${(state && state.command) || "mirror.py"} ui\` still running?`);
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);

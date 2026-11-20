@@ -14,7 +14,7 @@ from .logsetup import close_log, log, redact, setup_log
 from .notify import notify
 from .remotes import real_host
 from .runlock import RunLocked
-from .settings import LOG_DIR
+from .settings import LOG_DIR, command_name
 
 
 def network_up(hosts, ports=(443, 22), timeout=5):
@@ -92,7 +92,7 @@ def run_profile(name, network_checked):
 
 
 def main(argv):
-    p = argparse.ArgumentParser(prog="mirror.py scheduled")
+    p = argparse.ArgumentParser(prog=f"{command_name()} scheduled")
     p.add_argument("--startup-delay", type=int, default=0, help="seconds to wait first (for login triggers)")
     a = p.parse_args(argv)
     if a.startup_delay:
