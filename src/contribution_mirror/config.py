@@ -1,5 +1,6 @@
 """The user's settings, read from the .env settings file (and the real environment): who they are and where the mirror
 is. Also `setup`: create the settings files from the templates and show where everything lives."""
+import functools
 import os
 import re
 import stat
@@ -33,6 +34,28 @@ class Config:
     until: str = ""              # MIRROR_UNTIL: only dates on or before this day; empty = no limit
 
 
+@functools.lru_cache(maxsize=None)
+def template_values():
+    """{key: value} of the settings template: its example values are what a file nobody filled in still holds."""
+    try:
+        with open(ENV_TEMPLATE, encoding="utf-8") as f:
+            return envfile.parse(f.read(), ENV_TEMPLATE)
+    except (OSError, envfile.EnvFileError):
+        return {}
+
+
+def placeholders(values):
+    """The required settings in `values` that still hold the template's example (any one of several work emails).
+    Running with them would clone the example repos and try to push to the example mirror, so they count as unset."""
+    found = []
+    for key in REQUIRED:
+        example = template_values().get(key, "").strip().lower()
+        value = (values.get(key) or "").strip().lower()
+        if example and value and example in (value.split() if key == "WORK_EMAIL" else [value]):
+            found.append(key)
+    return found
+
+
 def warn_if_readable_by_others(path):
     """On Linux/macOS, a settings file that other users can read is reported (it may hold tokens and emails)."""
     if os.name == "nt":
@@ -53,6 +76,10 @@ def load_config(path=None):
     envfile.load(path)
     warn_if_readable_by_others(path)
     envfile.require(REQUIRED)
+    examples = placeholders(os.environ)
+    if examples:
+        raise envfile.EnvFileError(f"{path} still has the template's example value for {', '.join(examples)}: fill in "
+                                   f"your own (in the file, or on the page: {command_name()} ui)")
     e = os.environ.get
     limits = {}
     for key in ("MIRROR_SINCE", "MIRROR_UNTIL"):

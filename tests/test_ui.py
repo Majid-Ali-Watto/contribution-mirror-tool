@@ -226,6 +226,20 @@ class Settings(Server):
         _, state, _ = self.request("GET", "/api/state")
         self.assertEqual(state["settings"]["PERSONAL_NAME"], '"Quoted"')
 
+    def test_the_templates_example_values_are_not_accepted(self):
+        status, body, _ = self.request("POST", "/api/settings", self.settings(WORK_EMAIL="you@company.com",
+                                       EXPECTED_REMOTE="git@github.com:your-user/work-contributions.git"))
+        self.assertEqual(status, 400)
+        self.assertIn("Work email: that is the template's example", body["error"])
+        self.assertIn("Mirror repo: that is the template's example", body["error"])
+        os.makedirs(os.path.dirname(self.env_path))
+        with open(self.env_path, "w") as f:                               # a file made by `setup`, not filled in
+            f.write("WORK_EMAIL=you@company.com\nPERSONAL_NAME=Me\nPERSONAL_EMAIL=me@p.com\n"
+                    "EXPECTED_REMOTE=git@github.com:me/m.git\n")
+        self.request("POST", "/api/repos", {"repos": [_path.make_repo(os.path.join(self.tmp.name, "w"), [])]})
+        _, state, _ = self.request("GET", "/api/state")
+        self.assertEqual((state["missing"], state["ready"]), (["WORK_EMAIL"], False))
+
     def test_date_limits_are_checked_and_saved(self):
         status, body, _ = self.request("POST", "/api/settings", self.settings(MIRROR_SINCE="2026-13-01"))
         self.assertEqual(status, 400)

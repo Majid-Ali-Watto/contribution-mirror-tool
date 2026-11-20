@@ -149,6 +149,7 @@ The command exits with code 1 if a check found a problem (warnings do not count)
 | You see | What to do |
 | --- | --- |
 | `missing <path> -- run mirror.py setup` | Do step 4 (page: Setup > Save; command: `make setup`, then edit the file). |
+| `still has the template's example value for ...` or `still lists only the template's examples` | The settings file or project list was created by `setup` but not filled in. Replace the example values (`you@company.com`, `your-user`, the example repos) with yours. Nothing was cloned or pushed. |
 | `no project list: <path> does not exist` | Do step 4 to create the project list, or name folders with `--src` / `sync <folder>`. Nothing else is scanned. |
 | `0 found` for a project | The author email differs from `WORK_EMAIL`: see the tip in step 4. |
 | `fetch failed ... scanning what is already local` | Your git access to that work repo failed (offline, or no credentials for this run); the local copy was still read. |

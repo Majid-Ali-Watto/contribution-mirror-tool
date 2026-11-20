@@ -32,7 +32,7 @@ from . import doctor, envfile
 from . import repos as repolist
 from . import schedule as scheduler
 from . import __version__
-from .config import DEFAULT_ENV_FILE, REQUIRED, check_profile_name, current_profile, list_profiles, profile_paths
+from .config import DEFAULT_ENV_FILE, REQUIRED, placeholders, check_profile_name, current_profile, list_profiles, profile_paths
 from .logsetup import redact
 from .push import check_remote
 from .providers import WORK_TOKEN_VARS
@@ -92,6 +92,9 @@ def validate_settings(data):
         problems.append("Mirror repo: needed (the URL of your personal repo)")
     elif is_url(remote) and "/" not in repo_path(remote):
         problems.append("Mirror repo: the URL must name owner/repo, e.g. git@github.com:you/work-contributions.git")
+    names = {"WORK_EMAIL": "Work email", "PERSONAL_NAME": "Your name", "PERSONAL_EMAIL": "Personal email",
+             "EXPECTED_REMOTE": "Mirror repo"}
+    problems += [f"{names[k]}: that is the template's example, enter your own" for k in placeholders(values)]
     if values["MIRROR_PR_REVIEWS"].lower() not in ("", "on", "auto", "off"):
         problems.append("Pull requests and reviews: on or off")
     values["MIRROR_PR_REVIEWS"] = "off" if values["MIRROR_PR_REVIEWS"].lower() == "off" else ""
@@ -244,7 +247,8 @@ class App:
                 error = str(e)
         settings = {k: values.get(k, "") for k in FIELDS}
         settings["MIRROR_PR_REVIEWS"] = "off" if settings["MIRROR_PR_REVIEWS"].lower() == "off" else "on"
-        missing = [k for k in REQUIRED if not (values.get(k) or os.environ.get(k, "")).strip()]
+        current = {k: values.get(k) or os.environ.get(k, "") for k in REQUIRED}
+        missing = [k for k in REQUIRED if not current[k].strip()] + placeholders(current)
         return {
             "settings": settings,
             "env_exists": os.path.isfile(self.env_path),
@@ -254,7 +258,7 @@ class App:
             "repos_legacy": legacy,
             "repos_error": error,
             "missing": missing,
-            "ready": not missing and bool(entries) and not error,
+            "ready": not missing and any(not repolist.is_example(e) for e in entries) and not error,
             "paths": {"env": self.env_path, "repos": self.repos_path},
             "profile": self.profile,
             "profiles": self.profiles(),

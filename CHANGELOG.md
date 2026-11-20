@@ -4,6 +4,15 @@ What changed in each version. `mirror.py --version` (`contribution-mirror --vers
 version you have; the setup page shows it under its title. To update a checkout: `git pull`. An installed copy:
 `pipx install --force <wheel URL>` with the wheel of the newest release, or `pipx install --force .` from a checkout.
 
+## 1.1.2 (2026-11-21)
+
+### Fixed
+- A settings file or project list created by `setup` but not filled in is no longer run. The templates' example values
+  (`you@company.com`, `Your Name`, `you@example.com`, `git@github.com:your-user/work-contributions.git`) count as not
+  set: `sync`, scheduled runs and `accounts` stop with a message naming them, `doctor` reports it, and the page refuses
+  to save them and shows Setup as not ready. Example entries in the project list are never cloned or scanned. Before,
+  a sync right after `setup` tried to clone the example repos and push to the example mirror.
+
 ## 1.1.1 (2026-11-21)
 
 ### Fixed

@@ -97,6 +97,10 @@ def check_projects(path, mirror):
                 local.append(path_)
     detail = f"{len(local)} local clone(s), {len(urls)} URL(s)"
     detail += " (uses the older remote_repos key)" if legacy else ""
+    if not (local or urls):
+        checks.insert(0, Check(FAIL, "Project list", f"{path}: none of the entries is a usable project of yours",
+                               "add your work repos (paths or git URLs) and remove the examples"))
+        return checks, local, urls
     fix = _private_problem(path)
     checks.insert(0, Check(WARN if fix else OK, "Project list", f"{path}: {detail}" +
                            (", readable by other users" if fix else ""), fix or ""))

@@ -1,5 +1,6 @@
 """Which projects to scan: the project list (repos.json: paths and URLs), folder scanning, and grouping by host.
 The command line and the setup page read, check and write the list through the same functions here."""
+import functools
 import json
 import os
 import time
@@ -9,7 +10,7 @@ from .fsutil import write_private
 from .gitutil import origin_url
 from .logsetup import warn
 from .remotes import is_url, repo_key, repo_path, scope_of, url_host
-from .settings import command_name
+from .settings import REPOS_TEMPLATE, command_name
 
 SKIP_DIRS = ("node_modules",)          # never searched for repos (hidden folders are skipped too)
 
@@ -24,6 +25,20 @@ def origin_urls(repos):
         return {}
     with ThreadPoolExecutor(min(8, len(repos))) as ex:
         return dict(zip(repos, ex.map(origin_url, repos)))
+
+
+@functools.lru_cache(maxsize=None)
+def example_entries():
+    """The entries of the project-list template: placeholders, never real projects (so never cloned or scanned)."""
+    try:
+        with open(REPOS_TEMPLATE, encoding="utf-8") as f:
+            return frozenset(e.strip() for e in json.load(f).get("repos", []) if isinstance(e, str))
+    except (OSError, ValueError, AttributeError):
+        return frozenset()
+
+
+def is_example(entry):
+    return entry.strip() in example_entries()
 
 
 def is_repo(path):
@@ -69,6 +84,9 @@ def clean_entries(entries):
 
 def check_entry(entry):
     """What the page shows next to one entry. Never touches the network."""
+    if is_example(entry):
+        return {"entry": entry, "kind": "url" if is_url(entry) else "path", "ok": False,
+                "detail": "example from the template: replace it with one of your projects"}
     if is_url(entry):
         return {"entry": entry, "kind": "url", "ok": True, "detail": url_host(entry) or "URL"}
     path = os.path.abspath(os.path.expanduser(entry))
@@ -83,6 +101,14 @@ def load_repos_file(path):
     list of URLs is still accepted, with a note). No directory walking.
     Returns (local repo paths, URLs to scan from a temporary clone)."""
     entries, legacy = read_entries(path)
+    examples = [e for e in entries if is_example(e)]
+    entries = [e for e in entries if not is_example(e)]
+    if examples and not entries:
+        raise ReposFileError(f"{path} still lists only the template's examples: replace them with your own projects "
+                             f"(in the file, or on the page: {command_name()} ui)")
+    if examples:
+        warn(f"skipping {len(examples)} example entr{'y' if len(examples) == 1 else 'ies'} from the template in {path}: "
+             "remove them")
     if legacy:
         print(f'note: {path} uses the older "remote_repos" key. It still works; URLs can simply go in "repos" '
               'together with paths.')

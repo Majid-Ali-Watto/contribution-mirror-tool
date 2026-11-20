@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from unittest import mock
 
 import _path
-from contribution_mirror import config, fsutil, logsetup, mirror_repo, scan, state
+from contribution_mirror import config, envfile, fsutil, logsetup, mirror_repo, scan, state
 
 POSIX = os.name != "nt"
 
@@ -166,6 +166,60 @@ class MirrorFolder(Tmp):
         self.assertFalse(self.marked(path))
         self.assertEqual(subprocess.run(["git", "-C", path, "rev-parse", "main"], capture_output=True,
                                         text=True).stdout, head)
+
+
+class UntouchedTemplate(Tmp):
+    """Settings and projects nobody filled in are not run: they would clone the example repos and push to the
+    example mirror (`your-user/work-contributions`)."""
+    def setUp(self):
+        super().setUp()
+        self.env_file, self.repos_file = os.path.join(self.dir, "cfg", ".env"), os.path.join(self.dir, "cfg", "repos.json")
+        env = mock.patch.dict(os.environ, {"MIRROR_ENV_FILE": self.env_file, "MIRROR_REPOS_FILE": self.repos_file,
+                                           "HOME": self.dir, "USERPROFILE": self.dir})
+        env.start()
+        self.addCleanup(env.stop)
+        for k in config.REQUIRED + ("MIRROR_DIR", "MIRROR_LOG_DIR"):
+            os.environ.pop(k, None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            config.setup_main([])                              # exactly what a new user gets
+
+    def test_a_sync_right_after_setup_stops_before_doing_anything(self):
+        from contribution_mirror import sync
+        with mock.patch.object(subprocess, "run") as run, mock.patch.object(subprocess, "Popen") as popen, \
+                contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sync.main([]), 1)
+        self.assertIn("template's example value for WORK_EMAIL, PERSONAL_NAME, PERSONAL_EMAIL, EXPECTED_REMOTE",
+                      err.getvalue())
+        run.assert_not_called()                                 # no git, no ssh, no network
+        popen.assert_not_called()
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "work-contributions")))
+
+    def test_one_example_value_is_enough_to_stop(self):
+        with open(self.env_file, "w", encoding="utf-8") as f:
+            f.write("WORK_EMAIL=me@work.com you@company.com\nPERSONAL_NAME=Me\nPERSONAL_EMAIL=me@personal.com\n"
+                    "EXPECTED_REMOTE=git@github.com:me/mirror.git\n")
+        with self.assertRaisesRegex(envfile.EnvFileError, "example value for WORK_EMAIL:"):
+            config.load_config()
+
+    def test_example_projects_are_never_scanned(self):
+        from contribution_mirror import repos
+        with self.assertRaisesRegex(repos.ReposFileError, "only the template's examples"):
+            repos.load_repos_file(self.repos_file)
+        mine = _path.make_repo(os.path.join(self.dir, "mine"), [])
+        entries, _ = repos.read_entries(self.repos_file)
+        repos.save_entries(self.repos_file, entries + [mine])
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            local, urls = repos.load_repos_file(self.repos_file)
+        self.assertEqual((local, urls), ([mine], []))
+        self.assertIn(f"skipping {len(entries)} example entries", err.getvalue())
+        self.assertEqual(repos.check_entry(entries[1])["ok"], False)
+
+    def test_doctor_says_what_to_fill_in(self):
+        from contribution_mirror import doctor
+        with mock.patch.dict(os.environ), contextlib.redirect_stderr(io.StringIO()):
+            first = doctor.run_checks(include_schedule=False)[0]
+        self.assertEqual(first.status, "fail")
+        self.assertIn("template's example value", first.detail)
 
 
 class Redaction(unittest.TestCase):

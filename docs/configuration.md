@@ -1,7 +1,9 @@
 # Configuration
 
 Both files can also be edited on the setup page: `python3 -I src/mirror.py ui` ([GUI](gui.md)). `python3 -I src/mirror.py setup`
-(or `make setup`) creates them from the templates if they are missing, and prints where they are.
+(or `make setup`) creates them from the templates if they are missing, and prints where they are. The templates' example
+values (`you@company.com`, `your-user/work-contributions`, the example repos) count as not filled in: a run stops and says
+which ones to replace, and example entries in the project list are never cloned.
 
 Your private values are kept in two files that are not part of the code, so the repo is safe to publish and every user has
 their own:
