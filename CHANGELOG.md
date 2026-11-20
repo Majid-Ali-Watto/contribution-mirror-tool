@@ -4,7 +4,7 @@ What changed in each version. `mirror.py --version` (`contribution-mirror --vers
 version you have; the setup page shows it under its title. To update a checkout: `git pull`. An installed copy:
 `pipx install --force <wheel URL>` with the wheel of the newest release, or `pipx install --force .` from a checkout.
 
-## Unreleased
+## 1.2.0 (2026-11-21)
 
 ### New
 - **Pause and resume a project.** A paused project stays on the list but is not read: no commits, pull requests,
