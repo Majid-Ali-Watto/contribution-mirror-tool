@@ -156,6 +156,7 @@ document.addEventListener("contextmenu", (ev) => { if (longPressed) ev.preventDe
 // ------------------------------------------------------------------------------------------------ state
 let state = null;
 let entries = [];               // the project list as edited on the page
+let paused = new Set();         // the entries runs skip until resumed
 let statuses = new Map();       // entry -> {ok, detail, kind} from the last save/load
 let settingsDirty = false, reposDirty = false;
 
@@ -173,11 +174,7 @@ async function load() {
   $("#env-path").textContent = state.paths.env;
   $("#repos-path").textContent = state.paths.repos;
   if (!settingsDirty) fillSettings(state.settings);
-  if (!reposDirty) {
-    entries = state.repos.map((r) => r.entry);
-    statuses = new Map(state.repos.map((r) => [r.entry, r]));
-    renderRepos();
-  }
+  if (!reposDirty) takeRepos(state.repos);
   show($("#repos-legacy"), state.repos_legacy);
   banner($("#repos-error"), state.repos_error);
   banner($("#overridden"), state.overridden.length
@@ -303,24 +300,48 @@ function setReposDirty(on) {
   if (state) updateReady();
 }
 
+function takeRepos(repos) {
+  entries = repos.map((r) => r.entry);
+  paused = new Set(repos.filter((r) => r.paused).map((r) => r.entry));
+  statuses = new Map(repos.map((r) => [r.entry, r]));
+  renderRepos();
+}
+
 function renderRepos() {
   const list = $("#repo-list");
   list.replaceChildren();
   for (const entry of entries) {
     const st = statuses.get(entry);
-    const li = el("li", st && !st.ok ? "bad" : "");
+    const isPaused = paused.has(entry);
+    const li = el("li", [st && !st.ok ? "bad" : "", isPaused ? "paused" : ""].join(" ").trim());
     li.append(el("span", "dot"));
     const what = el("div", "what");
     what.append(el("div", "entry", entry));
-    what.append(el("div", "detail", st ? st.detail : "not saved yet"));
+    const detail = st ? st.detail : "not saved yet";
+    what.append(el("div", "detail", isPaused ? "paused, not read by runs · " + detail : detail));
     li.append(what);
     li.append(el("span", "tag", st ? st.kind : (/^[A-Za-z][A-Za-z0-9+.-]*:\/\/|^[^/\s@]+@[^/\s:]+:/.test(entry) ? "url" : "path")));
+    const pause = el("button", "icon", isPaused ? "Resume" : "Pause");
+    pause.type = "button";
+    pause.setAttribute("aria-label", (isPaused ? "Resume " : "Pause ") + entry);
+    pause.setAttribute("aria-pressed", String(isPaused));
+    pause.title = isPaused
+      ? "Read this project again (then Save projects). The next run adds all its dates, including those from while it was paused"
+      : "Stop reading this project but keep it on the list (then Save projects). Dates already in your mirror stay";
+    pause.addEventListener("click", () => {
+      if (isPaused) paused.delete(entry); else paused.add(entry);
+      setReposDirty(true);
+      renderRepos();
+      $("#repo-list").children[entries.indexOf(entry)].querySelector("button").focus();   // keep the keyboard place
+    });
+    li.append(pause);
     const rm = el("button", "icon", "Remove");
     rm.type = "button";
     rm.setAttribute("aria-label", "Remove " + entry);
     rm.title = "Take this project off the list (then Save projects). Nothing on disk is deleted";
     rm.addEventListener("click", () => {
       entries = entries.filter((x) => x !== entry);
+      paused.delete(entry);
       setReposDirty(true);
       renderRepos();
     });
@@ -351,11 +372,9 @@ $("#add-repo").addEventListener("submit", (ev) => {
 $("#save-repos").addEventListener("click", async () => {
   banner($("#repos-error"), "");
   try {
-    state = await api("/api/repos", { repos: entries });
-    entries = state.repos.map((r) => r.entry);
-    statuses = new Map(state.repos.map((r) => [r.entry, r]));
+    state = await api("/api/repos", { repos: entries, paused: entries.filter((e) => paused.has(e)) });
+    takeRepos(state.repos);
     setReposDirty(false);
-    renderRepos();
     show($("#repos-legacy"), state.repos_legacy);
     flash($("#repos-saved"));
     updateReady();

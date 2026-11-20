@@ -29,17 +29,17 @@ class Gitea(Provider):
             return (0, 0)
         return (0, 1)
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):
         after = f"{since.isoformat()}T00:00:00Z"
         owners = listed_owners(repos)
         repo_of = lambda i: (i.get("repository") or {}).get("full_name", "")
         search = lambda **extra: api.pages("/repos/issues/search", size_param="limit", size=50,
                                            type="pulls", state="all", **extra)
-        prs = [i["created_at"] for i in search(created_by=login, created_after=after) if owned_by(repo_of(i), owners)]
+        prs = [i["created_at"] for i in search(created_by=login, created_after=after) if owned_by(repo_of(i), owners, paused)]
         reviews = []
         # `since` = updated since: a review updates its pull request, which may have been opened long before
         for pr in search(reviewed="true", since=after):   # pull requests reviewed by the authenticated user
-            if (pr.get("user") or {}).get("login") == login or not owned_by(repo_of(pr), owners):
+            if (pr.get("user") or {}).get("login") == login or not owned_by(repo_of(pr), owners, paused):
                 continue
             repo = pr["repository"]["full_name"]
             for r in api.get(f"/repos/{repo}/pulls/{pr['number']}/reviews") or []:
@@ -49,9 +49,9 @@ class Gitea(Provider):
                     reviews.append(when)
         return prs, reviews
 
-    def fetch_issues(self, api, login, repos, since):
+    def fetch_issues(self, api, login, repos, since, paused=frozenset()):
         owners = listed_owners(repos)
         repo_of = lambda i: (i.get("repository") or {}).get("full_name", "")
         found = api.pages("/repos/issues/search", size_param="limit", size=50, type="issues", state="all",
                           created_by=login, created_after=f"{since.isoformat()}T00:00:00Z")
-        return [i["created_at"] for i in found if owned_by(repo_of(i), owners)]
+        return [i["created_at"] for i in found if owned_by(repo_of(i), owners, paused)]

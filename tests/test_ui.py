@@ -297,6 +297,18 @@ class Projects(Server):
             self.assertEqual(json.load(f), {"repos": [repo, "git@github.com:acme/api.git", missing]})
         self.assertFalse(state["repos_legacy"])
 
+    def test_projects_can_be_paused_and_resumed(self):
+        repo = _path.make_repo(os.path.join(self.tmp.name, "work", "app"), [])
+        url = "git@github.com:acme/api.git"
+        _, state, _ = self.request("POST", "/api/repos", {"repos": [repo, url], "paused": [url]})
+        self.assertEqual([(r["entry"], r["paused"]) for r in state["repos"]], [(repo, False), (url, True)])
+        with open(self.repos_path) as f:
+            self.assertEqual(json.load(f), {"repos": [repo, url], "paused": [url]})
+        _, state, _ = self.request("POST", "/api/repos", {"repos": [repo, url]})          # resumed
+        self.assertEqual([r["paused"] for r in state["repos"]], [False, False])
+        status, _, _ = self.request("POST", "/api/repos", {"repos": [repo], "paused": "x"})
+        self.assertEqual(status, 400)
+
     def test_find_repos_in_a_folder(self):
         base = os.path.join(self.tmp.name, "work")
         a = _path.make_repo(os.path.join(base, "a"), [])

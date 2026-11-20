@@ -239,10 +239,10 @@ class App:
 
     def state(self):
         values = envfile.read(self.env_path)
-        entries, legacy, error = [], False, None
+        entries, paused, legacy, error = [], [], False, None
         if os.path.isfile(self.repos_path):
             try:
-                entries, legacy = repolist.read_entries(self.repos_path)
+                entries, paused, legacy = repolist.read_entries(self.repos_path)
             except repolist.ReposFileError as e:
                 error = str(e)
         settings = {k: values.get(k, "") for k in FIELDS}
@@ -254,7 +254,7 @@ class App:
             "env_exists": os.path.isfile(self.env_path),
             "overridden": sorted(k for k in FIELDS if os.environ.get(k, "").strip()),
             "tokens": [k for k in TOKEN_VARS if (values.get(k) or os.environ.get(k, "")).strip()],
-            "repos": [repolist.check_entry(e) for e in entries],
+            "repos": [dict(repolist.check_entry(e), paused=e in paused) for e in entries],
             "repos_legacy": legacy,
             "repos_error": error,
             "missing": missing,
@@ -275,11 +275,13 @@ class App:
 
     def save_repos(self, data):
         try:
-            entries = repolist.clean_entries((data or {}).get("repos") if isinstance(data, dict) else None)
+            data = data if isinstance(data, dict) else {}
+            entries = repolist.clean_entries(data.get("repos"))
+            paused = repolist.clean_entries(data.get("paused", []))
         except ValueError as e:
             raise BadRequest(str(e)) from None
         with self.write_lock:
-            repolist.save_entries(self.repos_path, entries)
+            repolist.save_entries(self.repos_path, entries, paused)
         return self.state()
 
     @staticmethod

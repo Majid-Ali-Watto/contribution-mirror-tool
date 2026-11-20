@@ -28,13 +28,13 @@ class RepoList(unittest.TestCase):
     def test_paths_and_urls_can_be_mixed_in_one_list(self):
         path = self.write({"repos": [self.local, "git@github-work:Org/a.git", "https://github.com/Org/b",
                                      self.local, "git@github-work:Org/a.git"]})   # duplicates ignored
-        local, urls = repos.load_repos_file(path)
+        local, urls, _ = repos.load_repos_file(path)
         self.assertEqual((local, urls), ([self.local], ["git@github-work:Org/a.git", "https://github.com/Org/b"]))
 
     def test_legacy_remote_repos_key_still_works_with_a_note(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            local, urls = repos.load_repos_file(self.write({"repos": [], "remote_repos": ["git@github.com:Org/c.git"]}))
+            local, urls, _ = repos.load_repos_file(self.write({"repos": [], "remote_repos": ["git@github.com:Org/c.git"]}))
         self.assertEqual((local, urls), ([], ["git@github.com:Org/c.git"]))
         self.assertIn('older "remote_repos" key', out.getvalue())
         out = io.StringIO()
@@ -45,7 +45,7 @@ class RepoList(unittest.TestCase):
     def test_a_path_that_is_not_a_git_repo_is_skipped_with_a_warning(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            local, _ = repos.load_repos_file(self.write({"repos": [os.path.join(self.tmp.name, "nope"), self.local]}))
+            local, _, _ = repos.load_repos_file(self.write({"repos": [os.path.join(self.tmp.name, "nope"), self.local]}))
         self.assertEqual(local, [self.local])
         self.assertIn("not a git repo", err.getvalue())
 
@@ -53,12 +53,12 @@ class RepoList(unittest.TestCase):
         subprocess.run(["git", "-C", self.local, "remote", "add", "origin", "git@github.com:Org/Clone.git"],
                        check=True, env=_path.GIT_ENV)
         path = self.write({"repos": [self.local, "https://github.com/org/clone.git", "git@github.com:Org/Other.git"]})
-        local, urls = repos.select_sources(None, path, os.path.join(self.tmp.name, "mirror"))
+        local, urls, _ = repos.select_sources(None, path, os.path.join(self.tmp.name, "mirror"))
         self.assertEqual((local, urls), ([self.local], ["git@github.com:Org/Other.git"]))
 
     def test_src_folders_take_precedence_over_the_repos_file(self):
         path = self.write({"repos": ["git@github.com:Org/ignored.git"]})
-        local, urls = repos.select_sources([self.tmp.name], path, os.path.join(self.tmp.name, "mirror"))
+        local, urls, _ = repos.select_sources([self.tmp.name], path, os.path.join(self.tmp.name, "mirror"))
         self.assertEqual((local, urls), ([self.local], []))      # found by scanning the folder
 
     def test_mirror_inside_a_source_repo_is_refused(self):
@@ -91,6 +91,30 @@ class RepoList(unittest.TestCase):
         self.assertEqual(sorted(repos.find_repos([base])), sorted([a, wt]))
         self.assertEqual(sorted(repos.find_under(base)[0]), sorted([a, wt]))   # the page finds the same
 
+    def test_paused_projects_stay_listed_but_are_not_read(self):
+        other = _path.make_repo(os.path.join(self.tmp.name, "other"), [])
+        path = self.write({"repos": [self.local, other, "git@github.com:Org/p.git", "git@github.com:Org/a.git"],
+                           "paused": [other, " git@github.com:Org/p.git ", "/not/listed"]})
+        listed = repos.read_entries(path)
+        self.assertEqual(listed.paused, [other, "git@github.com:Org/p.git"])      # entries not on the list are ignored
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            local, urls, paused = repos.load_repos_file(path)
+        self.assertEqual((local, urls), ([self.local], ["git@github.com:Org/a.git"]))
+        self.assertEqual(paused, ([other], ["git@github.com:Org/p.git"]))
+        self.assertIn("paused projects      : 2", out.getvalue())
+        repos.save_entries(path, listed.entries, [other, "/not/listed"])
+        with open(path) as f:
+            self.assertEqual(json.load(f)["paused"], [other])
+        repos.save_entries(path, listed.entries)
+        with open(path) as f:
+            self.assertNotIn("paused", json.load(f))                            # nothing paused: the plain format
+
+    def test_a_paused_spelling_never_hides_the_same_repo_listed_as_active(self):
+        active = repos.group_by_scope([], ["git@github.com:Org/a.git"])
+        got = repos.paused_by_scope(([], ["https://github.com/org/A", "git@github.com:Org/p.git"]), active)
+        self.assertEqual(got, {"github.com": ["Org/p"]})
+
     def test_group_by_scope_uses_the_real_host_behind_aliases(self):
         subprocess.run(["git", "-C", self.local, "remote", "add", "origin", "git@github-work:Org/Clone.git"],
                        check=True, env=_path.GIT_ENV)
@@ -107,7 +131,7 @@ class ReposFileProblems(RepoList):
 
     def test_non_ascii_paths_and_a_windows_bom_are_read_as_utf8(self):
         repo = _path.make_repo(os.path.join(self.tmp.name, "Projets Été"), [("me@w.com", "2026-01-01T00:00:00Z")])
-        local, _ = repos.load_repos_file(self.raw(json.dumps({"repos": [repo]}, ensure_ascii=False), "utf-8-sig"))
+        local, _, _ = repos.load_repos_file(self.raw(json.dumps({"repos": [repo]}, ensure_ascii=False), "utf-8-sig"))
         self.assertEqual(local, [repo])
 
     def test_broken_files_are_clear_errors(self):

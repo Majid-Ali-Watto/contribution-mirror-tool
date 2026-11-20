@@ -27,6 +27,16 @@ class IncrementalWindow(unittest.TestCase):
         self.assertIn("mirror is empty", state.api_since(st, "github.com", "a", False, False)[1])
         self.assertIn("account changed", state.api_since(st, "github.com", "someone-else", True, False)[1])
         self.assertIn("no saved state", state.api_since(st, "gitlab.com", "a", True, False)[1])   # another host
+        self.assertIn("project list changed", state.api_since(st, "github.com", "a", True, False, "k")[1])
+
+    def test_the_same_project_list_stays_incremental(self):
+        key = state.projects_key(["Acme/web", "acme/api"], ["acme/old"])
+        self.assertEqual(key, state.projects_key(["acme/API", "acme/web"], ["Acme/Old"]))   # order and case ignored
+        self.assertNotEqual(key, state.projects_key(["acme/api", "acme/web", "acme/old"]))  # resumed: a full scan
+        state.save_state(self.tmp.name, {"github.com": ("a", "gh:a", key)}, datetime.now(timezone.utc))
+        st = state.load_state(self.tmp.name)
+        self.assertTrue(state.api_since(st, "github.com", "a", True, False, key)[1].startswith("incremental"))
+        self.assertNotIn("acme", json.dumps(st))                                          # no repo name is stored
 
     def test_incremental_goes_back_by_the_safety_margin(self):
         st = self.save(datetime.now(timezone.utc))

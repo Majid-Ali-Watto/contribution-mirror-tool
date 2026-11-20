@@ -38,8 +38,9 @@ except what a sync sends anyway. Token values are never shown on it. Details: [G
   the original dates. This is the only data that leaves your computer on purpose, and it goes to *your own* repository.
 - **Local files** in your log folder ([where it is](configuration.md#where-the-files-are)): `mirror.log` (a summary line per run,
   warnings, and the names of your repo folders; never tokens) and `api-state.json` (per host: your account name, where its
-  login came from, and the time of the last run; and what kind of server each self-hosted host is). They are owner-only
-  (mode 600 on Linux and macOS), like your settings file and project list, and so are the rotated copies of the log.
+  login came from, the time of the last run, and a hash of the listed and paused projects, not their names; and what
+  kind of server each self-hosted host is). They are owner-only (mode 600 on Linux and macOS), like your settings file
+  and project list, and so are the rotated copies of the log.
 - **Temporary clones** of repos you listed by URL, in the `tmp/` folder of your log folder: commit metadata only, deleted
   when the scan ends, and emptied by the next run if a run was stopped before that. A host that ignores the tree-less filter
   sends file contents into them while they exist. Only if you set `MIRROR_CLONE_CACHE`, the clones are kept in that folder

@@ -66,7 +66,7 @@ a plain command that also works without make.
 | `accounts.py` | `accounts`: the login per host, via the same `Creds` as a run (`--json` for the page) |
 | `doctor.py` | `doctor`: read-only checks with a fix each (`Check(status, name, detail, fix)`; `--json` for the page, which adds `check_schedule` itself from `schedule_ops`). Must never write, fetch into a work repo or push |
 | `config.py`, `envfile.py`, `settings.py` | Where the files are (`settings.py`, rules in its docstring), the settings file (parsed, never executed), `setup`; `envfile.update` (with `update_text`; `read` for the values) edits it in place. Constants |
-| `repos.py` | The project list, `repos.json` (paths and URLs in one `"repos"` list; legacy `"remote_repos"` still read). The page's helpers: `read_entries`, `save_entries`, `clean_entries`, `check_entry`, `find_under` |
+| `repos.py` | The project list, `repos.json` (paths and URLs in one `"repos"` list; `"paused"` names entries runs skip; legacy `"remote_repos"` still read). `read_entries` returns a `ProjectList(entries, paused, legacy)`; `select_sources` returns (repos, URLs, paused (repos, URLs)). The page's helpers: `save_entries`, `clean_entries`, `check_entry`, `find_under` |
 | `scan.py`, `gitutil.py` | Fetch/clone in parallel, stream `git log`, count each commit once across repos. Temporary clones go in `<log_dir>/tmp`; `clear_tmp` empties it at the start of each run |
 | `mirror_repo.py` | Read mirror dates, reconcile with the remote, write via one `git fast-import`. `ensure_repo` writes only to a repo marked `contribution-mirror.mirror=true` (or one with only mirror commits, then marked) |
 | `push.py` | Remote safety check, push, https-token fallback (token must own the mirror on GitHub/GitLab/Gitea; elsewhere only the credential helper) |
@@ -101,9 +101,12 @@ a plain command that also works without make.
   are `api:pull-requests`, `api:reviews`, `api:issues` and `remote:<name>`; keep the formats or update `report.py` and its
   tests together.
 - **PRs/reviews are limited** to the owners of the listed repos (`providers.base.owned_by`); GitLab filters by project
-  id. With no listed repos, or an item without repo info, nothing is filtered.
-- **State is per host** (`state.save_state(log_dir, {scope: (login, source)}, started, hosts)`), saved only after the
-  commits are written, and only for hosts whose scan succeeded. Per profile too: `state_path` is `api-state-NAME.json`
+  id. With no listed repos, or an item without repo info, nothing is filtered. Paused projects reach `fetch` /
+  `fetch_issues` as `paused` (lowercase `owner/repo`, from `repos.paused_by_scope`); owner-filtered hosts drop them
+  through `owned_by`, hosts that ask per listed project (GitLab, Azure) never see them.
+- **State is per host** (`state.save_state(log_dir, {scope: (login, source, projects_key)}, started, hosts)`), saved
+  only after the commits are written, and only for hosts whose scan succeeded. `projects_key` is a hash of the host's
+  listed and paused projects (never their names); a different key makes `api_since` scan that host in full. Per profile too: `state_path` is `api-state-NAME.json`
   when `MIRROR_PROFILE` is set.
 - **Profiles** (`config.py`): profile NAME's files are `profiles/NAME/.env` and `repos.json` next to the default ones
   (`profile_paths`); a process works on `MIRROR_PROFILE` (set by `cli.main` from a leading `--profile NAME`). Loading

@@ -240,6 +240,16 @@ class OnlyTheListedWork(AgainstAFakeHost):
         for name in ("bitbucket", "azure"):                                  # no issues to read there
             self.assertEqual((PROVIDERS[name].issues, PROVIDERS[name].fetch_issues(None, "me", [], SINCE)), (False, []))
 
+    def test_paused_projects_are_left_out_even_when_their_owner_is_listed(self):
+        with FakeHost() as h:
+            h.routes["/search/issues"] = lambda q: (200, {"total_count": 2, "items": [
+                {"created_at": "2026-02-05T00:00:00Z", "repository_url": f"{h.url}/repos/acme/web"},
+                {"created_at": "2026-02-06T00:00:00Z", "repository_url": f"{h.url}/repos/Acme/Paused"}]})
+            p = PROVIDERS["github"]
+            self.assertEqual(p.fetch_issues(self.api(h, p), "me", ["acme/web"], SINCE, frozenset({"acme/paused"})),
+                             ["2026-02-05T00:00:00Z"])
+            self.assertEqual(len(p.fetch_issues(self.api(h, p), "me", ["acme/web"], SINCE)), 2)   # not paused: kept
+
     def test_gitea_reviews_use_the_update_time_and_listed_owners(self):
         p = PROVIDERS["gitea"]
         with FakeHost() as h:

@@ -36,8 +36,10 @@ The **Profile** menu at the top chooses which setup the tabs show, e.g. one per 
    shell is flagged, because the shell wins over the file.
 2. **Projects.** Your work repos, as local clone paths or git URLs of any host, the same list as your project list (`repos.json`)
    ([configuration](configuration.md#the-project-list-reposjson)). Each entry shows whether it is usable. **Find repos in a folder**
-   lists the git repos under a folder so you can add them in one go. **Save projects** writes the project list; a
-   file in the older format (`remote_repos`) is converted to the single list.
+   lists the git repos under a folder so you can add them in one go. **Pause** keeps a project on the list but stops
+   reading it (its dates already in the mirror stay); **Resume** reads it again, including what happened while it
+   was paused ([pausing](configuration.md#the-project-list-reposjson)). **Remove** takes it off the list. **Save
+   projects** writes the project list; a file in the older format (`remote_repos`) is converted to the single list.
 3. **Check.** **Check my setup** runs `mirror.py doctor` and lists every check as OK, Warning, Problem or Not checked,
    each problem with how to fix it ([what is checked](getting-started.md#checking-the-setup)). It only reads: nothing
    is changed or pushed.

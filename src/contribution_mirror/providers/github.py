@@ -89,22 +89,22 @@ class GitHub(Provider):
             return (0, 0)                          # this account cannot see that repo
         return (1 if commits else 0, 1)
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):
         end = datetime.now(timezone.utc).date() + timedelta(days=1)   # +1: tolerate clock/timezone skew
         with ThreadPoolExecutor(2) as ex:
             f_prs = ex.submit(search_items, api, f"author:{login} type:pr", "created", since, end)
             f_rev = ex.submit(search_items, api, f"reviewed-by:{login} type:pr -author:{login}", "updated", since, end)
             prs, reviewed = f_prs.result(), f_rev.result()
         owners = listed_owners(repos)
-        pr_times = [i["created_at"] for i in prs if owned_by(repo_of(i), owners)]
-        jobs = [(repo_of(i), i["number"]) for i in reviewed if owned_by(repo_of(i), owners)]
+        pr_times = [i["created_at"] for i in prs if owned_by(repo_of(i), owners, paused)]
+        jobs = [(repo_of(i), i["number"]) for i in reviewed if owned_by(repo_of(i), owners, paused)]
         del prs, reviewed
         with ThreadPoolExecutor(API_WORKERS) as ex:
             review_times = [t for ts in ex.map(lambda j: pr_reviews(api, j[0], j[1], login, since), jobs) for t in ts]
         return pr_times, review_times
 
-    def fetch_issues(self, api, login, repos, since):
+    def fetch_issues(self, api, login, repos, since, paused=frozenset()):
         end = datetime.now(timezone.utc).date() + timedelta(days=1)
         found = search_items(api, f"author:{login} type:issue", "created", since, end)
         owners = listed_owners(repos)
-        return [i["created_at"] for i in found if owned_by(repo_of(i), owners)]
+        return [i["created_at"] for i in found if owned_by(repo_of(i), owners, paused)]

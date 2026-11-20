@@ -61,9 +61,9 @@ class GitLab(Provider):
                                    if ids is None or e.get("project_id") in ids]
                 for action, target in wanted}
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):   # filtered by listed project ids
         ev = self._events(api, repos, since, [("created", "merge_request"), ("approved", "merge_request")])
         return ev[("created", "merge_request")], ev[("approved", "merge_request")]
 
-    def fetch_issues(self, api, login, repos, since):
+    def fetch_issues(self, api, login, repos, since, paused=frozenset()):
         return self._events(api, repos, since, [("created", "issue")])[("created", "issue")]

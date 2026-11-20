@@ -89,6 +89,18 @@ List your projects. **Each entry is either a local clone path or a git URL, in a
 - A path that is missing or not a git repo is skipped with a warning (on stderr); the rest still run. A file that is not valid JSON, or not `{"repos": [...]}`, stops the run with a message saying so. The file is read as UTF-8 (a BOM from a Windows editor is fine).
 - The owners of the listed repos also decide which pull requests and reviews count: activity in other organisations or in your own side projects is left out (on GitLab: activity outside the listed projects).
 - To add a project, add a line. No code change and no other setup needed: see [authentication](authentication.md).
+- **Pausing a project** keeps it on the list without reading it: name it again under `"paused"` (or use **Pause** on
+  the [page](gui.md#setup)). Runs skip its commits and its pull requests, reviews and issues, and print how many
+  projects are paused. Dates already in your mirror stay. **Resuming** (taking it off `"paused"`) brings everything
+  back at the next run, including what happened while it was paused: the commits are in git, and the next pull request
+  scan of that host is a full one because its project list changed.
+
+  ```json
+  {
+    "repos": ["/path/to/clone", "git@github.com:YourOrg/old-project.git"],
+    "paused": ["git@github.com:YourOrg/old-project.git"]
+  }
+  ```
 - Precedence: `--src`, or folder names passed to `sync`, replace the list. Without a project list and without `--src`, a run stops with an error that says to run `mirror.py setup` or pass `--src`. It never scans other folders by itself.
 - A different file can be used with `--repos-file <path>`.
 

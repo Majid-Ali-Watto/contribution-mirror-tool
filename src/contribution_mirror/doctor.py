@@ -74,7 +74,7 @@ def check_projects(path, mirror):
         return [Check(FAIL, "Project list", f"{path} does not exist",
                       f"run `{command_name()} setup`, or add projects on the page")], [], []
     try:
-        entries, legacy = read_entries(path)
+        entries, paused, legacy = read_entries(path)
     except ReposFileError as e:
         return [Check(FAIL, "Project list", str(e), "fix the file, or save the list again on the page")], [], []
     if not entries:
@@ -82,6 +82,8 @@ def check_projects(path, mirror):
                       "add your work repos (paths or git URLs)")], [], []
     checks, local, urls = [], [], []
     for entry in entries:
+        if entry in paused:
+            continue
         st = check_entry(entry)
         if not st["ok"]:
             checks.append(Check(WARN, "Project", f"{entry}: {st['detail']}, skipped by every run",
@@ -96,7 +98,11 @@ def check_projects(path, mirror):
             elif path_ not in local:
                 local.append(path_)
     detail = f"{len(local)} local clone(s), {len(urls)} URL(s)"
+    detail += f", {len(paused)} paused (not read)" if paused else ""
     detail += " (uses the older remote_repos key)" if legacy else ""
+    if paused and not (local or urls):
+        return [Check(WARN, "Project list", f"{path}: every usable project is paused, so runs add nothing",
+                      'resume a project (on the page, or take it off "paused" in the file)')] + checks, local, urls
     if not (local or urls):
         checks.insert(0, Check(FAIL, "Project list", f"{path}: none of the entries is a usable project of yours",
                                "add your work repos (paths or git URLs) and remove the examples"))

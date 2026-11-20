@@ -38,9 +38,12 @@ def listed_owners(repos):
     return {r.split("/", 1)[0].lower() for r in repos if "/" in r}
 
 
-def owned_by(full_name, owners):
-    """True if a pull request in repo `full_name` belongs to the listed work: its owner is one of `owners`. With no
-    listed repos, or when the host did not say which repo it is, everything is kept (nothing is silently dropped)."""
+def owned_by(full_name, owners, paused=frozenset()):
+    """True if a pull request in repo `full_name` belongs to the listed work: its owner is one of `owners`, and the
+    repo is not a paused project (`paused`: lowercase 'owner/repo'). With no listed repos, or when the host did not
+    say which repo it is, everything is kept (nothing is silently dropped)."""
+    if full_name and full_name.lower() in paused:
+        return False
     return not owners or not full_name or full_name.split("/", 1)[0].lower() in owners
 
 
@@ -87,12 +90,13 @@ class Provider:
         """(commits by this account, can see the repo) for one listed repo: used to pick among several logins."""
         return (0, 0)
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):
         """(timestamps of PRs you opened, timestamps of reviews you made) since a date, as ISO strings. Only activity
-        in the listed repos' owners (or, where the host cannot say that, the listed projects) is returned."""
+        in the listed repos' owners (or, where the host cannot say that, the listed projects) is returned, and none
+        in `paused` (lowercase 'owner/repo' of paused projects; hosts that ask per listed project never see them)."""
         raise NotImplementedError
 
-    def fetch_issues(self, api, login, repos, since):
+    def fetch_issues(self, api, login, repos, since, paused=frozenset()):
         """Timestamps of the issues you opened since a date (ISO strings), limited like fetch(). Hosts whose graph
         counts opened issues (GitHub) or that list them per user implement it."""
         return []

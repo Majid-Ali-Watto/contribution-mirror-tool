@@ -14,7 +14,7 @@ from .credentials import Creds, explicit_choice
 from .logsetup import close_log, redact, say, setup_log
 from .mirror_repo import ensure_repo, existing_dates, write_commits
 from .report import RunResult, attribute, print_totals, summary
-from .repos import ReposFileError, group_by_scope, origin_urls, select_sources
+from .repos import ReposFileError, group_by_scope, origin_urls, paused_by_scope, select_sources
 from .runlock import RunLocked, run_lock
 from .scan import clear_tmp, scan_all
 from .settings import LOG_DIR, REPOS_FILE, command_name
@@ -87,8 +87,9 @@ def _run(a):
     # 1. what to scan, and who we are on GitHub
     st = load_state(a.log_dir)
     providers.remember(known_hosts(st))
-    repos, remotes = select_sources(a.src, a.repos_file or repos_path(), mirror)
-    repos_by_scope = group_by_scope(repos, remotes, origin_urls(repos))
+    repos, remotes, paused = select_sources(a.src, a.repos_file or repos_path(), mirror)
+    origins = origin_urls(repos + paused[0])
+    repos_by_scope = group_by_scope(repos, remotes, origins)
     # the account chosen last time is reused if it still works, unless a full re-scan was asked for
     creds = Creds(repos_by_scope, a.gh_user, None if a.full_api else preferred_accounts(st))
     if a.no_fetch:
@@ -103,7 +104,8 @@ def _run(a):
     done, started = {}, None
     if not a.no_api:
         items, done, started = fetch_activity(creds, repos_by_scope, st, bool(existing), a.full_api,
-                                              explicit_choice(a.gh_user))
+                                              explicit_choice(a.gh_user),
+                                              paused_by_scope(paused, repos_by_scope, origins))
         per_repo += items
 
     # 3. what is new (only dates within the chosen range)

@@ -206,10 +206,10 @@ class UntouchedTemplate(Tmp):
         with self.assertRaisesRegex(repos.ReposFileError, "only the template's examples"):
             repos.load_repos_file(self.repos_file)
         mine = _path.make_repo(os.path.join(self.dir, "mine"), [])
-        entries, _ = repos.read_entries(self.repos_file)
+        entries = repos.read_entries(self.repos_file).entries
         repos.save_entries(self.repos_file, entries + [mine])
         with contextlib.redirect_stderr(io.StringIO()) as err:
-            local, urls = repos.load_repos_file(self.repos_file)
+            local, urls, _ = repos.load_repos_file(self.repos_file)
         self.assertEqual((local, urls), ([mine], []))
         self.assertIn(f"skipping {len(entries)} example entries", err.getvalue())
         self.assertEqual(repos.check_entry(entries[1])["ok"], False)

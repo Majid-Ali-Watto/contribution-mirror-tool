@@ -199,6 +199,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .repo-list .entry { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .repo-list .detail { font-size: 12px; color: var(--muted); }
 .repo-list li.bad .detail { color: var(--danger); }
+.repo-list li.paused .dot { background: var(--muted); }
+.repo-list li.paused .entry { color: var(--muted); }
 .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
   background: var(--code); border-radius: 4px; padding: 1px 6px; }
 

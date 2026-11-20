@@ -52,7 +52,7 @@ class AzureDevOps(Provider):
             return (0, 0)
         return (0, 1)
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):   # asks per listed repo
         me, out = self._me(api)["id"], []
         for repo in repos:
             project, name = self._project_repo(repo)

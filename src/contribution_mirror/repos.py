@@ -4,11 +4,12 @@ import functools
 import json
 import os
 import time
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 from .fsutil import write_private
 from .gitutil import origin_url
-from .logsetup import warn
+from .logsetup import say, warn
 from .remotes import is_url, repo_key, repo_path, scope_of, url_host
 from .settings import REPOS_TEMPLATE, command_name
 
@@ -17,6 +18,11 @@ SKIP_DIRS = ("node_modules",)          # never searched for repos (hidden folder
 
 class ReposFileError(ValueError):
     """The project list cannot be used (missing, bad JSON, or not {"repos": [...]})."""
+
+
+# What the project list says: every entry (in order), the entries that are paused (kept, but not read by runs), and
+# whether the older "remote_repos" key is used.
+ProjectList = namedtuple("ProjectList", "entries paused legacy")
 
 
 def origin_urls(repos):
@@ -47,7 +53,8 @@ def is_repo(path):
 
 
 def read_entries(path):
-    """(entries as written, whether the older "remote_repos" key is used). Raises ReposFileError."""
+    """The project list as a ProjectList. "paused" names entries of "repos" that runs skip until they are resumed.
+    Raises ReposFileError."""
     try:
         with open(path, encoding="utf-8-sig") as f:              # -sig: a BOM from Windows editors is fine too
             cfg = json.load(f)
@@ -57,15 +64,23 @@ def read_entries(path):
         raise ReposFileError(f"{path} is not valid JSON: {e}") from None
     listed = cfg.get("repos") if isinstance(cfg, dict) else None
     extra = cfg.get("remote_repos", []) if isinstance(cfg, dict) else []
-    if not isinstance(listed, list) or not isinstance(extra, list) \
-            or not all(isinstance(x, str) for x in listed + extra):
-        raise ReposFileError(f'{path} must look like {{"repos": ["/path/to/clone", "git@host:org/repo.git"]}}')
-    return list(dict.fromkeys(listed + extra)), bool(extra)
+    paused = cfg.get("paused", []) if isinstance(cfg, dict) else []
+    if not all(isinstance(x, list) for x in (listed, extra, paused)) \
+            or not all(isinstance(x, str) for x in listed + extra + paused):
+        raise ReposFileError(f'{path} must look like {{"repos": ["/path/to/clone", "git@host:org/repo.git"]}}, '
+                             'optionally with "paused": [some of those entries]')
+    entries = list(dict.fromkeys(listed + extra))
+    paused = {p.strip() for p in paused}
+    return ProjectList(entries, [e for e in entries if e.strip() in paused], bool(extra))
 
 
-def save_entries(path, entries):
-    """Write the project list (owner-only, atomically)."""
-    write_private(path, json.dumps({"repos": entries}, indent=2, ensure_ascii=False) + "\n")
+def save_entries(path, entries, paused=()):
+    """Write the project list (owner-only, atomically). `paused`: the entries runs skip (others are ignored)."""
+    data = {"repos": entries}
+    paused = [e for e in entries if e in set(paused)]
+    if paused:
+        data["paused"] = paused
+    write_private(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def clean_entries(entries):
@@ -99,8 +114,9 @@ def check_entry(entry):
 def load_repos_file(path):
     """Projects from the list: each entry is a local clone path OR a git URL (ssh or https; the older "remote_repos"
     list of URLs is still accepted, with a note). No directory walking.
-    Returns (local repo paths, URLs to scan from a temporary clone)."""
-    entries, legacy = read_entries(path)
+    Returns (local repo paths, URLs to scan from a temporary clone, (paused local paths, paused URLs)). Paused
+    projects are not read; they are returned so their pull requests, reviews and issues can be left out too."""
+    entries, paused, legacy = read_entries(path)
     examples = [e for e in entries if is_example(e)]
     entries = [e for e in entries if not is_example(e)]
     if examples and not entries:
@@ -112,6 +128,15 @@ def load_repos_file(path):
     if legacy:
         print(f'note: {path} uses the older "remote_repos" key. It still works; URLs can simply go in "repos" '
               'together with paths.')
+    paused = [e for e in entries if e in paused]
+    if paused:
+        say(f"paused projects      : {len(paused)} (not read until resumed)")
+    active = _sources([e for e in entries if e not in paused], warn_missing=True)
+    return active[0], active[1], _sources(paused, warn_missing=False)
+
+
+def _sources(entries, warn_missing):
+    """(local repo paths, URLs) of project-list entries; a path that is not a git repo is left out."""
     repos, urls = [], []
     for r in entries:
         if is_url(r):
@@ -119,7 +144,8 @@ def load_repos_file(path):
             continue
         r = os.path.abspath(os.path.expanduser(r))
         if not is_repo(r):
-            warn(f"skipping '{r}' (not a git repo)")
+            if warn_missing:
+                warn(f"skipping '{r}' (not a git repo)")
         elif r not in repos:
             repos.append(r)
     return repos, list(dict.fromkeys(urls))
@@ -161,12 +187,13 @@ def _inside(path, folder):
 
 def select_sources(src, repos_file, mirror):
     """Local repo paths and URL entries to scan: the --src folders if given, else the project list. The mirror itself
-    is never scanned, and a mirror inside a source repo is refused (symlinks resolved)."""
-    remotes = []
+    is never scanned, and a mirror inside a source repo is refused (symlinks resolved).
+    Returns (local repo paths, URLs, (paused local paths, paused URLs))."""
+    remotes, paused = [], ([], [])
     if src:
         repos = [os.path.abspath(r) for r in find_repos(src)]
     elif os.path.exists(repos_file):
-        repos, remotes = load_repos_file(repos_file)
+        repos, remotes, paused = load_repos_file(repos_file)
     else:
         raise ReposFileError(f"no project list: {repos_file} does not exist. Create it with `{command_name()} setup` "
                              f"(or on the page, `{command_name()} ui`), or name folders with --src")
@@ -176,7 +203,7 @@ def select_sources(src, repos_file, mirror):
     if remotes:  # a URL that is already cloned locally and listed would be counted twice
         local_keys = {repo_key(u) for u in origin_urls(repos).values()}
         remotes = [u for u in remotes if repo_key(u) not in local_keys]
-    return repos, remotes
+    return repos, remotes, paused
 
 
 def group_by_scope(repos, remotes, origins=None):
@@ -188,3 +215,15 @@ def group_by_scope(repos, remotes, origins=None):
         if u and is_url(u):
             by_scope.setdefault(scope_of(u), []).append(repo_path(u))
     return {s: list(dict.fromkeys(v)) for s, v in by_scope.items()}
+
+
+def paused_by_scope(paused, by_scope, origins=None):
+    """{scope: ['owner/repo', ...]} of the paused projects (`paused` = (local paths, URLs)), without any repo that is
+    also listed as active (`by_scope`, from group_by_scope), so pausing one spelling never hides the other."""
+    out = {}
+    for scope, names in group_by_scope(*paused, origins).items():
+        active = {n.lower() for n in by_scope.get(scope, [])}
+        names = [n for n in names if n.lower() not in active]
+        if names:
+            out[scope] = names
+    return out

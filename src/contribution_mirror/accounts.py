@@ -22,7 +22,9 @@ def report(cfg, recheck=False, sources=None):
     log_dir = cfg.log_dir or LOG_DIR
     st = load_state(log_dir)
     providers.remember(known_hosts(st))
-    repos, remotes = sources or select_sources(None, cfg.repos_file or REPOS_FILE, os.path.abspath(cfg.mirror_dir))
+    if not sources:
+        sources = select_sources(None, cfg.repos_file or REPOS_FILE, os.path.abspath(cfg.mirror_dir))[:2]
+    repos, remotes = sources
     origins = origin_urls(repos)
     by_scope = group_by_scope(repos, remotes, origins)
     creds = Creds(by_scope, cfg.gh_user, None if recheck else preferred_accounts(st))

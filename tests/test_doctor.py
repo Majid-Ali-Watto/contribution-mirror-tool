@@ -99,6 +99,19 @@ class WholeSetup(Setup):
         self.write_repos([])
         self.assertEqual([c.status for c in self.run_checks() if c.name == "Project list"], ["fail"])
 
+    def test_paused_projects_are_counted_and_all_paused_is_a_warning(self):
+        fsutil.write_private(self.repos_file, json.dumps({"repos": [self.work, "git@github.com:a/b.git"],
+                                                          "paused": ["git@github.com:a/b.git"]}))
+        listed = [c for c in self.run_checks() if c.name == "Project list"]
+        self.assertEqual(listed[0].status, "ok")
+        self.assertIn("1 paused", listed[0].detail)
+        fsutil.write_private(self.repos_file, json.dumps({"repos": [self.work], "paused": [self.work]}))
+        checks = self.run_checks()
+        listed = [c for c in checks if c.name == "Project list"]
+        self.assertEqual(listed[0].status, "warn")
+        self.assertIn("every usable project is paused", listed[0].detail)
+        self.assertNotIn("fail", [c.status for c in checks if c.name == "Work email"])
+
     def test_a_mirror_folder_with_real_work_or_another_origin_is_a_failure(self):
         _path.make_repo(self.mirror, [(ME, "2026-01-01T10:00:00Z")])
         folder = [c for c in self.run_checks() if c.name == "Mirror folder"][0]

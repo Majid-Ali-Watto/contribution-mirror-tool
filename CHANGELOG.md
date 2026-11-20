@@ -4,6 +4,18 @@ What changed in each version. `mirror.py --version` (`contribution-mirror --vers
 version you have; the setup page shows it under its title. To update a checkout: `git pull`. An installed copy:
 `pipx install --force <wheel URL>` with the wheel of the newest release, or `pipx install --force .` from a checkout.
 
+## Unreleased
+
+### New
+- **Pause and resume a project.** A paused project stays on the list but is not read: no commits, pull requests,
+  reviews or issues from it, until it is resumed. **Pause** / **Resume** on the page, or `"paused"` in `repos.json`.
+  Resuming brings back everything, including what happened while it was paused. `doctor` counts paused projects.
+
+### Fixed
+- Adding a project (or resuming one) now gets its older pull requests, reviews and issues too: a host whose project
+  list changed is scanned in full once, instead of only since the last run. The first run after updating is a full
+  scan for that reason.
+
 ## 1.1.2 (2026-11-21)
 
 ### Fixed

@@ -35,7 +35,7 @@ class Bitbucket(Provider):
             return (0, 0)
         return (0, 1)
 
-    def fetch(self, api, login, repos, since):
+    def fetch(self, api, login, repos, since, paused=frozenset()):
         uuid, owners = api.get("/2.0/user")["uuid"], listed_owners(repos)
         path, params, out = f"/2.0/pullrequests/{quote(uuid, safe='')}", {
             "state": ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"], "sort": "-created_on", "pagelen": 50}, []
@@ -46,7 +46,7 @@ class Bitbucket(Provider):
                 if parse_iso(pr["created_on"]).date() < since:
                     return out, []                            # newest first: everything after is older
                 repo = ((pr.get("destination") or {}).get("repository") or {}).get("full_name", "")
-                if owned_by(repo, owners):
+                if owned_by(repo, owners, paused):
                     out.append(pr["created_on"])
             path = data.get("next")
         return out, []
