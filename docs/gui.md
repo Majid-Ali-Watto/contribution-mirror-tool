@@ -16,6 +16,8 @@ Your browser opens on the page. The terminal shows the link too; it is the key t
 The **System / Light / Dark** switch at the top chooses the colours. System (the default) follows your operating
 system; a choice is remembered by this browser only.
 
+Not sure what a button or field does? Point at it: every tab, button, field and option shows a short explanation.
+
 ## Setup
 
 1. **You.** Your work email(s), your name and personal email for the mirror commits, and the URL of your mirror repo.

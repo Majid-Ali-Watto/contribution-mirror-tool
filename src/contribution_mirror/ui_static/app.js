@@ -192,6 +192,7 @@ function renderRepos() {
     const rm = el("button", "icon", "Remove");
     rm.type = "button";
     rm.setAttribute("aria-label", "Remove " + entry);
+    rm.title = "Take this project off the list (then Save projects). Nothing on disk is deleted";
     rm.addEventListener("click", () => {
       entries = entries.filter((x) => x !== entry);
       setReposDirty(true);
@@ -255,12 +256,14 @@ $("#find").addEventListener("submit", async (ev) => {
       cb.value = path;
       cb.checked = !entries.includes(path);
       cb.disabled = entries.includes(path);
+      lab.title = entries.includes(path) ? "Already in your project list" : "Tick to add this repo";
       lab.append(cb, document.createTextNode(path + (entries.includes(path) ? "  (already listed)" : "")));
       li.append(lab);
       ul.append(li);
     }
     const add = el("button", "secondary", "Add selected");
     add.type = "button";
+    add.title = "Add the ticked repos to the list (then Save projects)";
     add.addEventListener("click", () => {
       const n = addEntries([...ul.querySelectorAll("input:checked:not(:disabled)")].map((c) => c.value));
       box.replaceChildren(el("p", "hint", `${n} added. Remember to save the projects.`));

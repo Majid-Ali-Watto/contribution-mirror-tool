@@ -22,9 +22,9 @@
     </div>
     <div class="top-right">
       <div class="theme" role="group" aria-label="Colour theme">
-        <button type="button" data-theme-choice="system" aria-pressed="true" title="Follow your system">System</button>
-        <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
-        <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-theme-choice="system" aria-pressed="true" title="Colours follow your system's light or dark setting">System</button>
+        <button type="button" data-theme-choice="light" aria-pressed="false" title="Always use light colours">Light</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false" title="Always use dark colours">Dark</button>
       </div>
       <span id="status" class="pill">Loading…</span>
     </div>
@@ -32,11 +32,11 @@
 
   <div class="tabs-bar">
     <nav class="tabs" role="tablist" aria-label="Sections">
-      <button role="tab" id="tab-setup" aria-controls="view-setup" aria-selected="true" tabindex="0"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Setup</span></button>
-      <button role="tab" id="tab-sync" aria-controls="view-sync" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span>Sync</span><i class="busy-dot" aria-hidden="true"></i></button>
-      <button role="tab" id="tab-accounts" aria-controls="view-accounts" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Accounts</span></button>
-      <button role="tab" id="tab-schedule" aria-controls="view-schedule" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Schedule</span></button>
-      <button role="tab" id="tab-logs" aria-controls="view-logs" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg><span>Logs</span></button>
+      <button role="tab" id="tab-setup" title="Your emails, mirror repo and the projects to read" aria-controls="view-setup" aria-selected="true" tabindex="0"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Setup</span></button>
+      <button role="tab" id="tab-sync" title="Preview or run a sync and see what it found" aria-controls="view-sync" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span>Sync</span><i class="busy-dot" aria-hidden="true"></i></button>
+      <button role="tab" id="tab-accounts" title="Which login is used for pull requests and reviews on each host" aria-controls="view-accounts" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Accounts</span></button>
+      <button role="tab" id="tab-schedule" title="Run the sync automatically at login and/or every day" aria-controls="view-schedule" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Schedule</span></button>
+      <button role="tab" id="tab-logs" title="Past runs and the log file" aria-controls="view-logs" aria-selected="false" tabindex="-1"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg><span>Logs</span></button>
     </nav>
   </div>
 
@@ -57,40 +57,40 @@
           <div class="grid">
             <label class="field wide">
               <span class="label">Work email(s)</span>
-              <input name="WORK_EMAIL" autocomplete="off" placeholder="you@company.com">
+              <input name="WORK_EMAIL" autocomplete="off" title="Commits with this author email in your work repos are mirrored. Separate several with spaces" placeholder="you@company.com">
               <span class="help">The author email of your commits in the work repos. Several: separate with spaces.</span>
             </label>
             <label class="field">
               <span class="label">Your name</span>
-              <input name="PERSONAL_NAME" autocomplete="name" placeholder="Your Name">
+              <input name="PERSONAL_NAME" autocomplete="name" title="Author name written on the mirror commits" placeholder="Your Name">
               <span class="help">Author name of the mirror commits.</span>
             </label>
             <label class="field">
               <span class="label">Personal email</span>
-              <input name="PERSONAL_EMAIL" type="email" autocomplete="email" placeholder="you@example.com">
+              <input name="PERSONAL_EMAIL" type="email" title="Author email of the mirror commits: it must be verified on your personal account, or nothing shows on your graph" autocomplete="email" placeholder="you@example.com">
               <span class="help">Must be <strong>verified</strong> on your personal account, or the graph stays empty.</span>
             </label>
             <label class="field wide">
               <span class="label">Mirror repo</span>
               <span class="row">
-                <input name="EXPECTED_REMOTE" autocomplete="off" placeholder="git@github.com:you/work-contributions.git">
-                <button type="button" id="check-remote" class="secondary">Check</button>
+                <input name="EXPECTED_REMOTE" autocomplete="off" title="URL of your personal mirror repo. Sync refuses to push anywhere else" placeholder="git@github.com:you/work-contributions.git">
+                <button type="button" id="check-remote" class="secondary" title="Test whether git can reach the mirror repo with your normal setup (reads only, changes nothing)">Check</button>
               </span>
               <span class="help">An empty <strong>private</strong> repo in your personal account. Sync never pushes anywhere else.</span>
               <span id="remote-result" class="result" hidden></span>
             </label>
           </div>
           <details class="more">
-            <summary>More options</summary>
+            <summary title="Mirror folder, pull requests and reviews, clone cache">More options</summary>
             <div class="grid">
               <label class="field">
                 <span class="label">Mirror folder</span>
-                <input name="MIRROR_DIR" autocomplete="off" placeholder="~/work-contributions">
+                <input name="MIRROR_DIR" autocomplete="off" title="Folder on this computer that holds the mirror repo. Created if missing" placeholder="~/work-contributions">
                 <span class="help">Local copy of the mirror. Created if missing.</span>
               </label>
               <label class="field">
                 <span class="label">Pull requests and reviews</span>
-                <select name="MIRROR_PR_REVIEWS">
+                <select name="MIRROR_PR_REVIEWS" title="Also mirror the dates of pull requests you opened and reviews you submitted, or only commits">
                   <option value="on">Mirror them too</option>
                   <option value="off">Commits only</option>
                 </select>
@@ -98,7 +98,7 @@
               </label>
               <label class="field wide">
                 <span class="label">Clone cache folder</span>
-                <input name="MIRROR_CLONE_CACHE" autocomplete="off" placeholder="empty: temporary clones">
+                <input name="MIRROR_CLONE_CACHE" autocomplete="off" title="Keep the clones of URL projects in this folder between runs, so later runs only fetch new commits. Empty: temporary clones, deleted after each run" placeholder="empty: temporary clones">
                 <span class="help">Keep clones of URL entries between runs (faster for big repos). Keep it private.</span>
               </label>
             </div>
@@ -106,7 +106,7 @@
           </details>
           <div id="settings-error" class="banner error" hidden></div>
           <div class="actions">
-            <button type="submit" class="primary">Save</button>
+            <button type="submit" class="primary" title="Write these settings to your settings file (.env). Tokens and other lines in it are kept">Save</button>
             <span id="settings-saved" class="ok-text" hidden>Saved</span>
           </div>
         </form>
@@ -125,19 +125,19 @@
         <ul id="repo-list" class="repo-list"></ul>
         <p id="repo-empty" class="empty" hidden>No projects yet. Add a path or URL below, or find the repos in a folder.</p>
         <form id="add-repo" class="row">
-          <input id="new-repo" autocomplete="off" placeholder="/path/to/clone  or  git@github.com:org/repo.git">
-          <button type="submit" class="secondary">Add</button>
+          <input id="new-repo" autocomplete="off" title="Path of a local clone, or a git URL (ssh or https) of a repo you have not cloned" placeholder="/path/to/clone  or  git@github.com:org/repo.git">
+          <button type="submit" class="secondary" title="Add this path or URL to the list (then Save projects)">Add</button>
         </form>
         <details class="more">
-          <summary>Find repos in a folder</summary>
+          <summary title="Search a folder for git repos and add the ones you pick">Find repos in a folder</summary>
           <form id="find" class="row">
-            <input id="find-folder" autocomplete="off" placeholder="~/work">
-            <button type="submit" class="secondary">Search</button>
+            <input id="find-folder" autocomplete="off" title="Folder to search; hidden folders and node_modules are skipped" placeholder="~/work">
+            <button type="submit" class="secondary" title="List the git repos in this folder (reads only)">Search</button>
           </form>
           <div id="find-result"></div>
         </details>
         <div class="actions">
-          <button id="save-repos" class="primary">Save projects</button>
+          <button id="save-repos" class="primary" title="Write the project list (repos.json)">Save projects</button>
           <span id="repos-saved" class="ok-text" hidden>Saved</span>
         </div>
       </div>
@@ -154,9 +154,9 @@
         <p class="hint"><strong>Preview</strong> changes nothing. <strong>Sync</strong> adds the new dates to your mirror
           as empty commits and pushes them to <code id="sync-remote"></code>.</p>
         <div class="actions">
-          <button id="run-preview" class="secondary">Preview</button>
-          <button id="run-sync" class="primary">Sync now</button>
-          <button id="run-cancel" class="danger" hidden>Stop</button>
+          <button id="run-preview" class="secondary" title="See what a sync would add. Changes nothing, pushes nothing">Preview</button>
+          <button id="run-sync" class="primary" title="Add the new dates to your mirror as empty commits and push them to your mirror repo">Sync now</button>
+          <button id="run-cancel" class="danger" hidden title="Stop the run now. Temporary clones are deleted; the next sync picks up whatever is still missing">Stop</button>
         </div>
       </div>
 
@@ -191,7 +191,7 @@
       <div class="card">
         <div class="card-head">
           <h2>Output</h2>
-          <label class="toggle"><input type="checkbox" id="only-problems"> Warnings and errors only</label>
+          <label class="toggle" title="Hide normal output lines and show only warnings and errors"><input type="checkbox" id="only-problems"> Warnings and errors only</label>
         </div>
         <pre id="log" class="log" aria-live="polite"><span class="muted">Nothing run yet.</span></pre>
       </div>
@@ -207,8 +207,8 @@
           login shown for each host: the one that has your commits in your projects. Token values are never shown,
           only where a login came from.</p>
         <div class="actions">
-          <button id="acc-check" class="primary">Check logins</button>
-          <button id="acc-recheck" class="secondary">Compare all logins again</button>
+          <button id="acc-check" class="primary" title="Show which login each host would use, reusing the one chosen last time if it still works">Check logins</button>
+          <button id="acc-recheck" class="secondary" title="Compare every login on this computer again and pick the one with your commits (slower)">Compare all logins again</button>
         </div>
         <div id="acc-error" class="banner error" hidden></div>
         <div id="acc-note" class="banner info" hidden></div>
@@ -233,23 +233,23 @@
         <div id="sch-not-ready" class="banner warn" hidden>Setup is not complete: scheduled runs will fail until it is.</div>
         <div id="sch-unsupported" class="banner error" hidden></div>
         <form id="sch-form">
-          <label class="check"><input type="checkbox" name="login"> <span><strong>At login</strong>
+          <label class="check" title="Sync a few minutes after you log in to this computer"><input type="checkbox" name="login"> <span><strong>At login</strong>
             <span class="help">a few minutes after you log in</span></span></label>
-          <label class="check"><input type="checkbox" name="daily"> <span><strong>Every day at</strong></span>
-            <input type="time" name="time" class="time" value="18:00" required></label>
+          <label class="check" title="Sync once a day at this time"><input type="checkbox" name="daily"> <span><strong>Every day at</strong></span>
+            <input type="time" name="time" class="time" title="Time of the daily run" value="18:00" required></label>
           <label class="field tz" id="sch-tz-field" hidden>
             <span class="label">Time zone (optional, Linux)</span>
-            <input name="timezone" autocomplete="off" placeholder="local time, or e.g. Europe/London">
+            <input name="timezone" autocomplete="off" title="Time zone of the daily time, e.g. Europe/London. Empty: this computer's time zone" placeholder="local time, or e.g. Europe/London">
           </label>
           <div id="sch-error" class="banner error" hidden></div>
           <div class="actions">
-            <button type="submit" class="primary">Apply</button>
-            <button type="button" id="sch-off" class="secondary">Turn all off</button>
+            <button type="submit" class="primary" title="Set up the system scheduler to match these choices">Apply</button>
+            <button type="button" id="sch-off" class="secondary" title="Remove every automatic run from the system scheduler">Turn all off</button>
             <span id="sch-saved" class="ok-text" hidden>Applied</span>
           </div>
         </form>
         <details class="more" id="sch-steps-box" hidden>
-          <summary>What was changed</summary>
+          <summary title="The files written and commands run on the scheduler">What was changed</summary>
           <pre id="sch-steps" class="log small"></pre>
         </details>
       </div>
@@ -260,7 +260,7 @@
       <div class="card">
         <div class="card-head">
           <h2>Runs</h2>
-          <button id="logs-refresh" class="secondary">Refresh</button>
+          <button id="logs-refresh" class="secondary" title="Read the log files again">Refresh</button>
         </div>
         <p class="hint">New commits per sync, from <code id="logs-dir"></code>.</p>
         <div id="runs-chart" class="runs-chart" role="img" aria-label="Commits created per run"></div>
@@ -270,7 +270,7 @@
       <div class="card">
         <div class="card-head">
           <h2>Log</h2>
-          <label class="toggle"><input type="checkbox" id="logs-problems"> Warnings and errors only</label>
+          <label class="toggle" title="Show only warnings and errors in the log"><input type="checkbox" id="logs-problems"> Warnings and errors only</label>
         </div>
         <table id="logs-table" class="sources logs">
           <thead><tr><th>When</th><th>Level</th><th>Message</th></tr></thead>
@@ -286,8 +286,8 @@
       <h2>Sync now?</h2>
       <p id="confirm-text"></p>
       <div class="actions">
-        <button value="cancel" class="secondary">Cancel</button>
-        <button value="ok" class="primary">Sync</button>
+        <button value="cancel" class="secondary" title="Close without syncing">Cancel</button>
+        <button value="ok" class="primary" title="Write the new commits and push them">Sync</button>
       </div>
     </form>
   </dialog>

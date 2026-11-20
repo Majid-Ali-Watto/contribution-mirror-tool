@@ -120,6 +120,32 @@ class Security(Server):
         self.assertEqual(self.request("GET", "/api/logs?limit=abc")[0], 400)
         self.assertEqual(self.request("GET", "/api/job?since=x")[0], 400)
 
+    def test_every_control_explains_itself_on_hover(self):
+        """Each button, field, choice and expandable section has a tooltip (its own title, or its label's)."""
+        from html.parser import HTMLParser
+
+        class Controls(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.labels, self.missing = [], []
+
+            def handle_starttag(self, tag, attrs):
+                a = dict(attrs)
+                if tag == "label":
+                    self.labels.append(bool(a.get("title")))
+                elif tag in ("button", "input", "select", "summary") and not a.get("title") \
+                        and not (self.labels and self.labels[-1]):
+                    self.missing.append(a.get("id") or a.get("name") or tag)
+
+            def handle_endtag(self, tag):
+                if tag == "label" and self.labels:
+                    self.labels.pop()
+
+        page = Controls()
+        with open(os.path.join(ui.STATIC, "index.html"), encoding="utf-8") as f:
+            page.feed(f.read())
+        self.assertEqual(page.missing, [])
+
     def test_the_page_loads_and_is_locked_down(self):
         status, body, headers = self.request("GET", "/", token=False)
         self.assertEqual(status, 200)
